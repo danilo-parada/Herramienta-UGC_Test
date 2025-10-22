@@ -572,6 +572,7 @@ _BANNER_KEY = "irl_stepper_banner"
 _CLOSE_EXPANDER_KEY = "irl_close_expander"
 _READY_KEY = "irl_level_ready"
 _EDIT_MODE_KEY = "irl_level_edit_mode"
+_AUTO_SAVE_KEY = "irl_auto_save"
 _QUESTION_PROGRESS_KEY = "irl_question_progress"
 
 _STATUS_CLASS_MAP = {
@@ -793,6 +794,8 @@ def _init_irl_state() -> None:
         st.session_state[_BANNER_KEY] = {dimension: None for dimension in STEP_TABS}
     if _CLOSE_EXPANDER_KEY not in st.session_state:
         st.session_state[_CLOSE_EXPANDER_KEY] = None
+    if _AUTO_SAVE_KEY not in st.session_state:
+        st.session_state[_AUTO_SAVE_KEY] = None
     if "irl_scores" not in st.session_state:
         st.session_state["irl_scores"] = {dimension: default for dimension, default in IRL_DIMENSIONS}
 
@@ -1481,6 +1484,7 @@ def _render_dimension_tab(dimension: str) -> None:
                                     siguiente_idx = active_idx + 1
                                 else:
                                     siguiente_idx = active_idx
+                                    st.session_state[_AUTO_SAVE_KEY] = (dimension, level_id)
                                 _set_active_question(
                                     dimension,
                                     level_id,
@@ -1567,6 +1571,32 @@ def _render_dimension_tab(dimension: str) -> None:
                             ):
                                 ready_to_save = False
                                 break
+                    auto_target = st.session_state.get(_AUTO_SAVE_KEY)
+                    if (
+                        auto_target == (dimension, level_id)
+                        and ready_to_save
+                        and not locked
+                    ):
+                        st.session_state[_AUTO_SAVE_KEY] = None
+                        success, error_message, banner = _handle_level_submission(
+                            dimension,
+                            level_id,
+                            respuestas_dict,
+                            evidencia_texto,
+                            evidencias_preguntas=evidencias_dict_envio,
+                            respuesta_manual=None,
+                        )
+                        st.session_state[_BANNER_KEY][dimension] = banner
+                        if error_message:
+                            st.session_state[_ERROR_KEY][dimension][level_id] = error_message
+                        else:
+                            st.session_state[_ERROR_KEY][dimension][level_id] = None
+                            _sync_dimension_score(dimension)
+                            _set_revision_flag(dimension, level_id, False)
+                            st.session_state[_EDIT_MODE_KEY][dimension][level_id] = False
+                            st.session_state[_CLOSE_EXPANDER_KEY] = (dimension, level_id)
+                            st.toast("Nivel guardado")
+                            _rerun_app()
                 else:
                     valor_manual = st.session_state.get(answer_key)
                     if valor_manual in {"VERDADERO", "FALSO"}:
@@ -1582,26 +1612,24 @@ def _render_dimension_tab(dimension: str) -> None:
                 if error_msg:
                     st.error(error_msg)
 
-                col_guardar, col_editar = st.columns([2, 1])
-                save_wrapper_class = "level-save-btn"
-                if ready_to_save and not locked:
-                    save_wrapper_class += " level-save-btn--ready"
-                with col_guardar:
-                    st.markdown(f"<div class='{save_wrapper_class}'>", unsafe_allow_html=True)
-                    guardar = st.button(
+                action_cols = st.columns([2, 1])
+                if preguntas:
+                    action_cols[0].empty()
+                    guardar = False
+                else:
+                    guardar = action_cols[0].button(
                         "Guardar y continuar con el siguiente nivel",
                         type="primary",
                         disabled=locked or not ready_to_save,
                         key=f"btn_guardar_{dimension}_{level_id}",
                         use_container_width=True,
                     )
-                    st.markdown("</div>", unsafe_allow_html=True)
                 show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
                 editar_label = "Cancelar" if show_cancel else "Editar"
                 editar_disabled = False
                 if not state.get("en_calculo") and edit_mode:
                     editar_disabled = True
-                editar = col_editar.button(
+                editar = action_cols[1].button(
                     editar_label,
                     disabled=editar_disabled,
                     key=f"btn_editar_{dimension}_{level_id}",
@@ -2045,7 +2073,7 @@ st.markdown(
 }
 
 div[data-testid="stExpander"] {
-    margin-bottom: 1.4rem;
+    margin-bottom: 0.85rem;
 }
 
 div[data-testid="stExpander"] > details {
@@ -2173,17 +2201,16 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card {
-    border-radius: 22px;
-    border: 2px solid rgba(var(--shadow-color), 0.18);
-    background: rgba(255, 255, 255, 0.95);
-    box-shadow: 0 16px 30px rgba(var(--shadow-color), 0.16);
-    margin-bottom: 0.55rem;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    border-radius: 20px;
+    border: 1px solid rgba(var(--shadow-color), 0.12);
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 10px 20px rgba(var(--shadow-color), 0.1);
+    margin-bottom: 0.3rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .level-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 22px 38px rgba(var(--shadow-color), 0.22);
+    box-shadow: 0 16px 28px rgba(var(--shadow-color), 0.16);
 }
 
 .level-card > div[data-testid="stExpander"] > details {
@@ -2268,8 +2295,8 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card--pending {
-    border-color: rgba(206, 84, 84, 0.55);
-    background: linear-gradient(150deg, rgba(227, 110, 110, 0.12), rgba(206, 84, 84, 0.08));
+    border-color: rgba(143, 162, 180, 0.4);
+    background: linear-gradient(140deg, rgba(186, 198, 214, 0.18), rgba(214, 222, 232, 0.12));
 }
 
 .level-card--attention {
@@ -2311,13 +2338,13 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block--pending {
-    background: linear-gradient(135deg, rgba(224, 156, 70, 0.16), rgba(210, 134, 46, 0.12));
-    box-shadow: 0 10px 18px rgba(210, 134, 46, 0.18);
+    background: linear-gradient(135deg, rgba(183, 196, 212, 0.16), rgba(163, 178, 197, 0.14));
+    box-shadow: 0 10px 18px rgba(120, 140, 160, 0.18);
 }
 
 .question-block--false {
-    background: linear-gradient(135deg, rgba(206, 84, 84, 0.18), rgba(183, 59, 59, 0.12));
-    box-shadow: 0 12px 22px rgba(183, 59, 59, 0.16);
+    background: linear-gradient(135deg, rgba(170, 182, 198, 0.18), rgba(145, 158, 176, 0.12));
+    box-shadow: 0 12px 22px rgba(120, 135, 155, 0.14);
 }
 
 .question-block--saved {
@@ -2386,8 +2413,8 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block__chip--false {
-    background: rgba(206, 84, 84, 0.16);
-    color: rgba(130, 32, 32, 0.92);
+    background: rgba(168, 178, 194, 0.2);
+    color: rgba(68, 82, 102, 0.92);
     border: none;
 }
 
@@ -2450,28 +2477,7 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     background: linear-gradient(135deg, rgba(21, 118, 78, 0.26), rgba(12, 74, 50, 0.22));
 }
 
-.level-save-btn > div[data-testid="stButton"] {
-    display: flex;
-    width: 100%;
-}
-
-.level-save-btn > div[data-testid="stButton"] > button {
-    width: 100%;
-    border-radius: 12px;
-    font-weight: 700;
-}
-
-.level-save-btn--ready > div[data-testid="stButton"] > button {
-    background: linear-gradient(135deg, #d94a3d, #a8231c);
-    border-color: rgba(168, 35, 28, 0.88);
-    box-shadow: 0 14px 26px rgba(168, 35, 28, 0.24);
-}
-
-.level-save-btn--ready > div[data-testid="stButton"] > button:hover {
-    background: linear-gradient(135deg, #e55d4f, #b32d24);
-}
-
-.question-action > div[data-testid="stButton"] {
+.question-action {
     width: 100%;
 }
 
@@ -2482,27 +2488,15 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-.question-action--prev > div[data-testid="stButton"] > button {
-    background: rgba(31, 55, 91, 0.08);
-    color: rgba(38, 52, 71, 0.88);
-    border: 1px solid rgba(31, 55, 91, 0.18);
-}
-
-.question-action--prev > div[data-testid="stButton"] > button:hover {
-    background: rgba(31, 55, 91, 0.12);
-    border-color: rgba(31, 55, 91, 0.28);
-    transform: translateY(-1px);
-}
-
 .question-action--next > div[data-testid="stButton"] > button {
-    background: linear-gradient(135deg, #1e9d6c, #15754e) !important;
-    color: #ffffff !important;
+    background: linear-gradient(135deg, #1e9d6c, #15754e);
+    color: #ffffff;
     border: 1px solid rgba(17, 94, 63, 0.85);
     box-shadow: 0 12px 22px rgba(21, 117, 78, 0.24);
 }
 
 .question-action--next > div[data-testid="stButton"] > button:hover:enabled {
-    background: linear-gradient(135deg, #25b27c, #1b8a5d) !important;
+    background: linear-gradient(135deg, #25b27c, #1b8a5d);
     box-shadow: 0 16px 28px rgba(21, 117, 78, 0.28);
     transform: translateY(-1px);
 }
@@ -2511,6 +2505,10 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     opacity: 0.6;
     box-shadow: none;
     cursor: not-allowed;
+}
+
+.question-action--single {
+    margin-top: 0.6rem;
 }
 
 .question-toggle {
