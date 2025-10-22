@@ -772,6 +772,32 @@ def _toggle_revision(dimension: str, level_id: int) -> None:
     _set_revision_flag(dimension, level_id, nuevo_valor)
 
 
+def _on_question_toggle(dimension: str, level_id: int, question_idx: int) -> None:
+    _init_irl_state()
+    respuesta_key = f"resp_{dimension}_{level_id}_{question_idx}"
+    evidencia_key = f"evid_{dimension}_{level_id}_{question_idx}"
+    agregada_key = f"evid_{dimension}_{level_id}"
+    valor = st.session_state.get(respuesta_key)
+    if valor != "VERDADERO":
+        st.session_state[evidencia_key] = ""
+    st.session_state[agregada_key] = ""
+    ready_state = st.session_state.setdefault(_READY_KEY, {})
+    ready_state.setdefault(dimension, {})[level_id] = False
+    _rerun_app()
+
+
+def _on_level_toggle(dimension: str, level_id: int) -> None:
+    _init_irl_state()
+    respuesta_key = f"resp_{dimension}_{level_id}"
+    evidencia_key = f"evid_{dimension}_{level_id}"
+    valor = st.session_state.get(respuesta_key)
+    if valor != "VERDADERO":
+        st.session_state[evidencia_key] = ""
+    ready_state = st.session_state.setdefault(_READY_KEY, {})
+    ready_state.setdefault(dimension, {})[level_id] = False
+    _rerun_app()
+
+
 def _restore_level_form_values(dimension: str, level_id: int) -> None:
     niveles = LEVEL_DEFINITIONS.get(dimension, [])
     level_data = next((lvl for lvl in niveles if lvl.get("nivel") == level_id), None)
@@ -1090,6 +1116,8 @@ def _render_dimension_tab(dimension: str) -> None:
                                 horizontal=True,
                                 label_visibility="collapsed",
                                 disabled=locked,
+                                on_change=_on_question_toggle,
+                                args=(dimension, level_id, idx),
                             )
 
                         evidencia_texto = ""
@@ -1126,6 +1154,8 @@ def _render_dimension_tab(dimension: str) -> None:
                         key=answer_key,
                         horizontal=True,
                         disabled=locked,
+                        on_change=_on_level_toggle,
+                        args=(dimension, level_id),
                     )
 
                 evidencia_texto = ""
