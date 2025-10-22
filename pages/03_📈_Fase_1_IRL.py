@@ -610,9 +610,13 @@ def _missing_required_evidences(
 def _init_irl_state() -> None:
     if _STATE_KEY not in st.session_state:
         st.session_state[_STATE_KEY] = {}
-        for dimension in STEP_TABS:
+    
+    for dimension in STEP_TABS:
+        if dimension not in st.session_state[_STATE_KEY]:
             st.session_state[_STATE_KEY][dimension] = {}
-            for level in LEVEL_DEFINITIONS.get(dimension, []):
+        
+        for level in LEVEL_DEFINITIONS.get(dimension, []):
+            if level["nivel"] not in st.session_state[_STATE_KEY][dimension]:
                 st.session_state[_STATE_KEY][dimension][level["nivel"]] = {
                     "respuesta": "FALSO",
                     "respuestas_preguntas": {},
