@@ -574,6 +574,7 @@ _READY_KEY = "irl_level_ready"
 _EDIT_MODE_KEY = "irl_level_edit_mode"
 _AUTO_SAVE_KEY = "irl_auto_save"
 _QUESTION_PROGRESS_KEY = "irl_question_progress"
+_RESTORE_ON_EDIT_KEY = "irl_restore_on_edit"
 
 _STATUS_CLASS_MAP = {
     "Pendiente": "pending",
@@ -686,11 +687,17 @@ def _set_active_question(dimension: str, level_id: int, idx: int, total_question
 def _init_irl_state() -> None:
     if _STATE_KEY not in st.session_state:
         st.session_state[_STATE_KEY] = {}
-    
+
+    if _RESTORE_ON_EDIT_KEY not in st.session_state:
+        st.session_state[_RESTORE_ON_EDIT_KEY] = {}
+
     for dimension in STEP_TABS:
         if dimension not in st.session_state[_STATE_KEY]:
             st.session_state[_STATE_KEY][dimension] = {}
-        
+
+        if dimension not in st.session_state[_RESTORE_ON_EDIT_KEY]:
+            st.session_state[_RESTORE_ON_EDIT_KEY][dimension] = {}
+
         for level in LEVEL_DEFINITIONS.get(dimension, []):
             if level["nivel"] not in st.session_state[_STATE_KEY][dimension]:
                 st.session_state[_STATE_KEY][dimension][level["nivel"]] = {
@@ -1174,6 +1181,17 @@ def _render_dimension_tab(dimension: str) -> None:
             not state.get("en_calculo"),
         )
         locked = bool(state.get("en_calculo")) and not edit_mode
+
+        restore_flags = st.session_state[_RESTORE_ON_EDIT_KEY][dimension]
+        if not edit_mode or locked:
+            restore_flags[level_id] = False
+        elif state.get("en_calculo"):
+            if not restore_flags.get(level_id):
+                _restore_level_form_values(dimension, level_id)
+                restore_flags[level_id] = True
+        else:
+            restore_flags[level_id] = False
+
         if locked:
             card_classes.append("level-card--locked")
         elif edit_mode:
@@ -2279,9 +2297,9 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card--answered {
-    border-color: rgba(18, 94, 59, 0.88);
-    box-shadow: 0 18px 32px rgba(17, 76, 50, 0.26);
-    background: linear-gradient(140deg, rgba(26, 122, 78, 0.25), rgba(18, 94, 59, 0.3));
+    border-color: rgba(58, 181, 112, 0.75);
+    box-shadow: 0 18px 32px rgba(46, 142, 86, 0.25);
+    background: linear-gradient(140deg, rgba(220, 247, 229, 0.95), rgba(188, 236, 205, 0.9));
 }
 
 .level-card--editing {
@@ -2317,8 +2335,18 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card--answered > div[data-testid="stExpander"] > details > summary {
-    color: #f4f8ff;
-    text-shadow: 0 1px 1px rgba(9, 33, 87, 0.45);
+    background: rgba(58, 181, 112, 0.18);
+    color: #145c33;
+    text-shadow: none;
+}
+
+.level-card--answered > div[data-testid="stExpander"] > details[open] > summary {
+    background: rgba(58, 181, 112, 0.28);
+    color: #0f4c28;
+}
+
+.level-card--answered > div[data-testid="stExpander"] > details > summary::before {
+    color: #145c33;
 }
 
 .level-card--answered > div[data-testid="stExpander"] > details > summary::after {
