@@ -1589,7 +1589,7 @@ def _render_dimension_tab(dimension: str) -> None:
                 with col_guardar:
                     st.markdown(f"<div class='{save_wrapper_class}'>", unsafe_allow_html=True)
                     guardar = st.button(
-                        "Guardar",
+                        "Guardar y continuar con el siguiente nivel",
                         type="primary",
                         disabled=locked or not ready_to_save,
                         key=f"btn_guardar_{dimension}_{level_id}",
