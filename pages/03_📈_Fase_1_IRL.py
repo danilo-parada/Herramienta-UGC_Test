@@ -769,24 +769,20 @@ def _init_irl_state() -> None:
                 continue
             progress = _ensure_question_progress(dimension, level_id, total_questions)
             level_state = st.session_state[_STATE_KEY][dimension][level_id]
-            first_pending: int | None = None
             for idx in range(1, total_questions + 1):
                 clave = str(idx)
                 respuesta = level_state.get("respuestas_preguntas", {}).get(clave)
                 evidencia = level_state.get("evidencias_preguntas", {}).get(clave)
                 is_complete = _question_is_complete(respuesta, evidencia)
                 progress["saved"][clave] = is_complete
-                if not is_complete and first_pending is None:
-                    first_pending = idx - 1
-            if first_pending is None:
-                first_pending = total_questions - 1 if total_questions else 0
             selector_key = f"selector_{dimension}_{level_id}"
+            default_active = 0
             existing_selector = st.session_state.get(selector_key)
             if isinstance(existing_selector, int) and 0 <= existing_selector < total_questions:
                 progress["active"] = existing_selector
             else:
-                progress["active"] = first_pending
-                st.session_state[selector_key] = first_pending
+                progress["active"] = default_active
+                st.session_state[selector_key] = default_active
             st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
     if _ERROR_KEY not in st.session_state:
         st.session_state[_ERROR_KEY] = {dimension: {} for dimension in STEP_TABS}
@@ -916,20 +912,15 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
         st.session_state[evidencia_join_key] = " \n".join(aggregated)
         total_questions = len(preguntas)
         progress = _ensure_question_progress(dimension, level_id, total_questions)
-        first_pending: int | None = None
         for idx, _ in enumerate(preguntas, start=1):
             clave = str(idx)
             respuesta_guardada = state.get("respuestas_preguntas", {}).get(clave)
             evidencia_guardada = evidencias_estado.get(clave, "")
             completo = _question_is_complete(respuesta_guardada, evidencia_guardada)
             progress["saved"][clave] = completo
-            if not completo and first_pending is None:
-                first_pending = idx - 1
-        if first_pending is None:
-            first_pending = total_questions - 1 if total_questions else 0
-        progress["active"] = first_pending
+        progress["active"] = 0
         st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
-        st.session_state[selector_key] = first_pending
+        st.session_state[selector_key] = 0
     else:
         answer_key = f"resp_{dimension}_{level_id}"
         evidencia_key = f"evid_{dimension}_{level_id}"
@@ -2564,9 +2555,12 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 
 .question-action--next > div[data-testid="stButton"] > button:disabled,
 .question-action--save > div[data-testid="stButton"] > button:disabled {
-    opacity: 0.6;
+    background: linear-gradient(135deg, #e5e7eb, #d1d5db);
+    color: #1f2937;
+    border: 1px solid #9ca3af;
     box-shadow: none;
     cursor: not-allowed;
+    opacity: 1;
 }
 
 .question-action--prev > div[data-testid="stButton"] > button {
