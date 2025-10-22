@@ -810,13 +810,25 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
 
 def _sync_dimension_score(dimension: str) -> int:
     niveles = LEVEL_DEFINITIONS.get(dimension, [])
-    highest = 0
-    for level in niveles:
-        level_state = _level_state(dimension, level["nivel"])
+    if not niveles:
+        st.session_state["irl_scores"][dimension] = 0
+        return 0
+    niveles_sorted = sorted(niveles, key=lambda lvl: lvl.get("nivel", 0))
+    baseline = niveles_sorted[0].get("nivel", 0)
+    highest = baseline - 1
+    for level in niveles_sorted:
+        nivel_actual = level.get("nivel", baseline)
+        expected_next = highest + 1
+        if nivel_actual != expected_next:
+            break
+        level_state = _level_state(dimension, nivel_actual)
         if level_state["respuesta"] == "VERDADERO" and level_state["en_calculo"]:
-            highest = max(highest, level["nivel"])
-    st.session_state["irl_scores"][dimension] = highest
-    return highest
+            highest = nivel_actual
+        else:
+            break
+    approved_level = highest if highest >= baseline else 0
+    st.session_state["irl_scores"][dimension] = approved_level
+    return approved_level
 
 
 def _sync_all_scores() -> None:
@@ -883,6 +895,18 @@ def _aggregate_question_status(respuestas: dict[str, str | None]) -> str | None:
     if all(valor == "VERDADERO" for valor in valores):
         return "VERDADERO"
     return "FALSO"
+
+
+def _handle_question_answer_change(*, pregunta_key: str, evidencia_key: str) -> None:
+    answer = st.session_state.get(pregunta_key)
+    if answer != "VERDADERO":
+        st.session_state[evidencia_key] = ""
+
+
+def _handle_manual_answer_change(*, answer_key: str, evidencia_key: str) -> None:
+    answer = st.session_state.get(answer_key)
+    if answer != "VERDADERO":
+        st.session_state[evidencia_key] = ""
 
 
 def _handle_level_submission(
@@ -1073,14 +1097,17 @@ def _render_dimension_tab(dimension: str) -> None:
                     )
 
                     selector_key = f"selector_{dimension}_{level_id}"
-                    if selector_key not in st.session_state:
-                        st.session_state[selector_key] = 0
                     nav_options = list(range(total_questions))
+                    if (
+                        selector_key not in st.session_state
+                        or st.session_state[selector_key] not in nav_options
+                    ):
+                        st.session_state[selector_key] = nav_options[0]
 
                     def _format_option(idx_option: int) -> str:
-                        suffix = " ✓" if snapshot_completion[idx_option] else ""
-                        return f"Pregunta {idx_option + 1}{suffix}"
+                        return f"Pregunta {idx_option + 1}"
 
+                    st.markdown("<div class='question-nav'>", unsafe_allow_html=True)
                     selected_idx = st.radio(
                         "Selecciona una pregunta",
                         options=nav_options,
@@ -1089,6 +1116,7 @@ def _render_dimension_tab(dimension: str) -> None:
                         key=selector_key,
                         label_visibility="collapsed",
                     )
+                    st.markdown("</div>", unsafe_allow_html=True)
                     active_idx = int(selected_idx)
                     prev_complete = all(snapshot_completion[:active_idx])
 
@@ -1148,6 +1176,11 @@ def _render_dimension_tab(dimension: str) -> None:
                             horizontal=True,
                             label_visibility="collapsed",
                             disabled=locked or (active_idx > 0 and not prev_complete),
+                            on_change=_handle_question_answer_change,
+                            kwargs={
+                                "pregunta_key": pregunta_key,
+                                "evidencia_key": evidencia_pregunta_key,
+                            },
                         )
 
                     evidencia_texto = st.text_area(
@@ -1186,6 +1219,11 @@ def _render_dimension_tab(dimension: str) -> None:
                         key=answer_key,
                         horizontal=True,
                         disabled=locked,
+                        on_change=_handle_manual_answer_change,
+                        kwargs={
+                            "answer_key": answer_key,
+                            "evidencia_key": evidencia_key,
+                        },
                     )
 
                 if preguntas:
@@ -1340,20 +1378,40 @@ def _collect_dimension_responses() -> pd.DataFrame:
     for dimension in dimensiones_ids:
         niveles = LEVEL_DEFINITIONS.get(dimension, [])
         evidencias: list[str] = []
-        highest = 0
-        for level in niveles:
-            data = _level_state(dimension, level["nivel"])
+        if not niveles:
+            st.session_state["irl_scores"][dimension] = 0
+            registros.append(
+                {
+                    "dimension": dimension,
+                    "etiqueta": etiquetas.get(dimension, dimension),
+                    "nivel": None,
+                    "evidencia": "",
+                }
+            )
+            continue
+        niveles_sorted = sorted(niveles, key=lambda lvl: lvl.get("nivel", 0))
+        baseline = niveles_sorted[0].get("nivel", 0)
+        highest = baseline - 1
+        for level in niveles_sorted:
+            nivel_actual = level.get("nivel", baseline)
+            expected_next = highest + 1
+            if nivel_actual != expected_next:
+                break
+            data = _level_state(dimension, nivel_actual)
             if data.get("respuesta") == "VERDADERO" and data.get("en_calculo"):
-                highest = max(highest, level["nivel"])
+                highest = nivel_actual
                 evidencia_txt = (data.get("evidencia") or "").strip()
                 if evidencia_txt:
                     evidencias.append(evidencia_txt)
-        st.session_state["irl_scores"][dimension] = highest
+            else:
+                break
+        approved_level = highest if highest >= baseline else 0
+        st.session_state["irl_scores"][dimension] = approved_level
         registros.append(
             {
                 "dimension": dimension,
                 "etiqueta": etiquetas.get(dimension, dimension),
-                "nivel": highest if highest else None,
+                "nivel": approved_level if approved_level else None,
                 "evidencia": " · ".join(evidencias),
             }
         )
@@ -1915,32 +1973,31 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block {
-    border: 1px solid rgba(var(--shadow-color), 0.14);
+    border: none;
     border-radius: 10px;
     padding: 0.45rem 0.6rem 0.4rem;
     margin-bottom: 0.2rem;
-    background: rgba(255, 255, 255, 0.96);
-    box-shadow: 0 4px 10px rgba(var(--shadow-color), 0.08);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: rgba(246, 249, 253, 0.96);
+    box-shadow: 0 6px 14px rgba(var(--shadow-color), 0.08);
+    transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 
 .question-block--true {
-    border-color: rgba(30, 78, 155, 0.78);
-    background: linear-gradient(135deg, rgba(56, 116, 209, 0.12), rgba(23, 63, 138, 0.12));
+    background: linear-gradient(135deg, rgba(21, 118, 78, 0.22), rgba(12, 74, 50, 0.18));
+    box-shadow: 0 12px 22px rgba(14, 92, 64, 0.18);
 }
 
 .question-block--pending {
-    border-color: rgba(206, 84, 84, 0.65);
-    background: linear-gradient(135deg, rgba(227, 110, 110, 0.12), rgba(206, 84, 84, 0.1));
+    background: linear-gradient(135deg, rgba(224, 156, 70, 0.16), rgba(210, 134, 46, 0.12));
+    box-shadow: 0 10px 18px rgba(210, 134, 46, 0.18);
 }
 
 .question-block--false {
-    border-color: rgba(206, 84, 84, 0.55);
-    background: linear-gradient(135deg, rgba(227, 110, 110, 0.18), rgba(206, 84, 84, 0.12));
+    background: linear-gradient(135deg, rgba(206, 84, 84, 0.18), rgba(183, 59, 59, 0.12));
+    box-shadow: 0 12px 22px rgba(183, 59, 59, 0.16);
 }
 
 .question-block--locked {
-    border-color: rgba(140, 150, 168, 0.5);
     background: rgba(244, 246, 250, 0.82);
     box-shadow: none;
     opacity: 0.78;
@@ -1996,15 +2053,15 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block__chip--true {
-    background: rgba(56, 116, 209, 0.18);
-    color: rgba(23, 63, 138, 0.95);
-    border: 1px solid rgba(56, 116, 209, 0.45);
+    background: rgba(28, 113, 83, 0.18);
+    color: rgba(12, 74, 50, 0.9);
+    border: none;
 }
 
 .question-block__chip--false {
-    background: rgba(227, 110, 110, 0.18);
-    color: rgba(144, 41, 41, 0.95);
-    border: 1px solid rgba(206, 84, 84, 0.45);
+    background: rgba(206, 84, 84, 0.16);
+    color: rgba(130, 32, 32, 0.92);
+    border: none;
 }
 
 .question-block__counter {
@@ -2015,8 +2072,54 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block__counter--alert {
-    color: rgba(184, 92, 64, 0.88);
+    color: rgba(184, 108, 54, 0.85);
     font-weight: 600;
+}
+
+.question-nav [data-baseweb="radio"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    background: rgba(31, 55, 91, 0.06);
+    padding: 0.35rem;
+    border-radius: 14px;
+}
+
+.question-nav [data-baseweb="radio"] > label {
+    flex: 1 0 auto;
+    border-radius: 12px;
+    padding: 0.35rem 0.85rem;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid transparent;
+    box-shadow: 0 4px 10px rgba(var(--shadow-color), 0.12);
+    font-weight: 600;
+    color: rgba(38, 52, 71, 0.88);
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.question-nav [data-baseweb="radio"] > label:hover {
+    box-shadow: 0 8px 16px rgba(var(--shadow-color), 0.18);
+}
+
+.question-nav [data-baseweb="radio"] > label:has(input:checked) {
+    background: linear-gradient(135deg, rgba(21, 118, 78, 0.2), rgba(12, 74, 50, 0.24));
+    color: rgba(12, 62, 44, 0.95);
+    box-shadow: 0 12px 24px rgba(14, 92, 64, 0.2);
+    border-color: rgba(14, 92, 64, 0.24);
+}
+
+.question-nav [data-baseweb="radio"] > label > div:first-child,
+.question-nav [data-baseweb="radio"] > label > span:first-child {
+    display: none;
+}
+
+.question-nav [data-baseweb="radio"] > label input {
+    display: none;
+}
+
+.question-nav [data-baseweb="radio"] > label p {
+    margin: 0;
 }
 
 .level-card--locked .question-block__counter,
