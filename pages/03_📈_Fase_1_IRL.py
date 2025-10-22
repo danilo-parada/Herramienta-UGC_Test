@@ -1091,16 +1091,15 @@ def _render_dimension_tab(dimension: str) -> None:
                                 disabled=locked,
                             )
 
-                        evidencia_texto = ""
+                        evidencia_texto = st.text_area(
+                            "Antecedentes de verificación",
+                            key=evidencia_pregunta_key,
+                            placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
+                            height=100,
+                            max_chars=STEP_CONFIG["max_char_limit"],
+                            disabled=locked or not requiere_evidencia,
+                        )
                         if requiere_evidencia:
-                            evidencia_texto = st.text_area(
-                                "Antecedentes de verificación",
-                                value=st.session_state[evidencia_pregunta_key],
-                                key=evidencia_pregunta_key,
-                                placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
-                                height=100,
-                                max_chars=STEP_CONFIG["max_char_limit"],
-                            )
                             contador = len(_clean_text(evidencia_texto))
                             contador_html = (
                                 f"<div class='question-block__counter{' question-block__counter--alert' if contador > STEP_CONFIG['soft_char_limit'] else ''}'>"
@@ -1109,9 +1108,12 @@ def _render_dimension_tab(dimension: str) -> None:
                             )
                             st.markdown(contador_html, unsafe_allow_html=True)
                         else:
-                            st.session_state[evidencia_pregunta_key] = ""
+                            st.caption("Disponible solo si seleccionas VERDADERO.")
 
-                        if requiere_evidencia and not _is_evidence_valid(st.session_state[evidencia_pregunta_key]):
+                        if (
+                            requiere_evidencia
+                            and not _is_evidence_valid(st.session_state[evidencia_pregunta_key])
+                        ):
                             st.markdown(
                                 "<div class='question-block__error'>Escribe los antecedentes de verificación para guardar como VERDADERO.</div>",
                                 unsafe_allow_html=True,
@@ -1127,10 +1129,17 @@ def _render_dimension_tab(dimension: str) -> None:
                         disabled=locked,
                     )
 
-                evidencia_texto = ""
                 if preguntas:
+                    respuestas_actuales = {
+                        idx_str: st.session_state.get(key)
+                        for idx_str, key in question_keys
+                    }
                     evidencias_dict_envio = {
-                        idx_str: _clean_text(st.session_state.get(e_key))
+                        idx_str: (
+                            _clean_text(st.session_state.get(e_key))
+                            if respuestas_actuales.get(idx_str) == "VERDADERO"
+                            else ""
+                        )
                         for idx_str, e_key in evidencia_question_keys
                     }
                     evidencia_texto = " \n".join(
@@ -1139,16 +1148,16 @@ def _render_dimension_tab(dimension: str) -> None:
                     st.session_state[evidencia_key] = evidencia_texto
                 else:
                     respuesta_manual_actual = st.session_state.get(answer_key, "FALSO")
-                    if respuesta_manual_actual == "VERDADERO":
-                        evidencia_texto = st.text_area(
-                            "Antecedentes de verificación",
-                            value=st.session_state[evidencia_key],
-                            key=evidencia_key,
-                            placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
-                            height=110,
-                            max_chars=STEP_CONFIG["max_char_limit"],
-                        )
+                    evidencia_texto = st.text_area(
+                        "Antecedentes de verificación",
+                        key=evidencia_key,
+                        placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
+                        height=110,
+                        max_chars=STEP_CONFIG["max_char_limit"],
+                        disabled=locked or respuesta_manual_actual != "VERDADERO",
+                    )
 
+                    if respuesta_manual_actual == "VERDADERO":
                         contador = len(_clean_text(evidencia_texto))
                         contador_html = (
                             f"<div class='stepper-form__counter{' stepper-form__counter--alert' if contador > STEP_CONFIG['soft_char_limit'] else ''}'>"
@@ -1157,7 +1166,7 @@ def _render_dimension_tab(dimension: str) -> None:
                         )
                         st.markdown(contador_html, unsafe_allow_html=True)
                     else:
-                        st.session_state[evidencia_key] = ""
+                        st.caption("Disponible solo si seleccionas VERDADERO.")
 
                 respuestas_dict = {
                     idx_str: (
