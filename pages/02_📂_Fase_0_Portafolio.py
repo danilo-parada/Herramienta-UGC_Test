@@ -2303,7 +2303,7 @@ def generar_recomendacion(row, puntaje, tablas):
 
 
 
-fase1_page = next(Path('pages').glob('03_*_Fase_1_TRL.py'), None)
+fase1_page = next(Path('pages').glob('03_*_Fase_1_IRL.py'), None)
 
 
 

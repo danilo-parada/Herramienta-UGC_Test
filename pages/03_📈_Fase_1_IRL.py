@@ -23,10 +23,20 @@ from core.data_table import render_table
 from core.db_trl import save_trl_result, get_trl_history
 from core.theme import load_theme
 
+# Definiciones de dimensiones con sus descripciones
+DIMENSION_DESCRIPTIONS = {
+    "CRL": "Clientes/Mercado",
+    "BRL": "Negocio/Modelo",
+    "IRL": "Tecnológico",
+    "IPRL": "Propiedad Intelectual",
+    "TmRL": "Equipo/Capacidades",
+    "FRL": "Finanzas/Riesgo"
+}
+
 IRL_DIMENSIONS = [
     ("CRL", 0),
     ("BRL", 0),
-    ("TRL", 4),
+    ("IRL", 4),
     ("IPRL", 5),
     ("TmRL", 6),
     ("FRL", 5),
@@ -192,7 +202,7 @@ FRL_LEVELS = [
     },
 ]
 
-TRL_LEVELS = [
+IRL_LEVELS = [
     {
         "nivel": 1,
         "descripcion": "Principios básicos observados.",
@@ -542,7 +552,7 @@ STEP_TABS = [dimension for dimension, _ in IRL_DIMENSIONS]
 LEVEL_DEFINITIONS = {
     "CRL": CRL_LEVELS,
     "BRL": BRL_LEVELS,
-    "TRL": TRL_LEVELS,
+    "IRL": IRL_LEVELS,
     "IPRL": IPRL_LEVELS,
     "TmRL": TMRL_LEVELS,
     "FRL": FRL_LEVELS,
@@ -1362,7 +1372,7 @@ def _collect_dimension_details() -> dict[str, dict[str, Any]]:
     return detalles
 
 
-st.set_page_config(page_title="Fase 1 - Evaluacion TRL", page_icon="🌲", layout="wide")
+st.set_page_config(page_title="Fase 1 - Evaluación IRL", page_icon="🌲", layout="wide")
 load_theme()
 
 st.markdown(
@@ -1832,12 +1842,12 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block {
-    border: 2px solid rgba(var(--shadow-color), 0.18);
-    border-radius: 18px;
-    padding: 1.1rem 1.2rem 1rem;
-    margin-bottom: 1rem;
+    border: 1px solid rgba(var(--shadow-color), 0.18);
+    border-radius: 14px;
+    padding: 0.6rem 0.8rem 0.5rem;
+    margin-bottom: 0.35rem;
     background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 10px 24px rgba(var(--shadow-color), 0.16);
+    box-shadow: 0 6px 16px rgba(var(--shadow-color), 0.12);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -2270,7 +2280,7 @@ with st.container():
             "<div class='irl-bubble irl-bubble--"
             + bubble_class
             + "'>"
-            + f"<span class='irl-bubble__label'>{dimension}</span>"
+            + f"<span class='irl-bubble__label'>{dimension} ({DIMENSION_DESCRIPTIONS[dimension]})</span>"
             + f"<strong class='irl-bubble__badge'>{badge}</strong>"
             + f"<small>{counts['completed']}/{counts['total']} en cálculo</small>"
             + "</div>"
@@ -2278,7 +2288,7 @@ with st.container():
     bubbles_html += "</div>"
     st.markdown(bubbles_html, unsafe_allow_html=True)
 
-    tab_labels = [f"{dimension} · {badge}" for dimension, badge, _ in badge_data]
+    tab_labels = [f"{dimension} ({DIMENSION_DESCRIPTIONS[dimension]}) · {badge}" for dimension, badge, _ in badge_data]
     tabs = st.tabs(tab_labels)
     for idx, (dimension, _, _) in enumerate(badge_data):
         with tabs[idx]:
@@ -2317,13 +2327,13 @@ with st.container():
         else:
             st.warning("No se encontraron definiciones de niveles para las dimensiones IRL.")
     puntaje = trl.calcular_trl(df_respuestas[["dimension", "nivel", "evidencia"]]) if not df_respuestas.empty else None
-    st.metric("Nivel TRL alcanzado", f"{puntaje:.1f}" if puntaje is not None else "-")
+    st.metric("Nivel IRL alcanzado", f"{puntaje:.1f}" if puntaje is not None else "-")
 
     col_guardar, col_ayuda = st.columns([1, 1])
     with col_guardar:
         if st.button("Guardar evaluacion", type="primary"):
             if puntaje is None:
-                st.error("Define evidencias consecutivas en al menos una dimensión para calcular el TRL antes de guardar.")
+                st.error("Define evidencias consecutivas en al menos una dimensión para calcular el IRL antes de guardar.")
             else:
                 try:
                     save_trl_result(project_id, df_respuestas[["dimension", "nivel", "evidencia"]], float(puntaje))
@@ -2335,7 +2345,7 @@ with st.container():
 
     with col_ayuda:
         st.info(
-            "El guardado crea un registro por dimensión con las evidencias acreditadas y asocia el TRL global a la misma fecha de evaluación."
+            "El guardado crea un registro por dimensión con las evidencias acreditadas y asocia el IRL global a la misma fecha de evaluación."
         )
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2395,7 +2405,7 @@ with st.container():
 
     historial = get_trl_history(project_id)
     if historial.empty:
-        st.warning("Aun no existe historial TRL para este proyecto.")
+        st.warning("Aun no existe historial IRL para este proyecto.")
     else:
         ultimo_registro = historial["fecha_eval"].iloc[0]
         st.caption(f"Ultima evaluacion registrada: {ultimo_registro}")

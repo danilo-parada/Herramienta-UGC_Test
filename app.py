@@ -24,7 +24,7 @@ PHASES = [
     {
         "title": "Fase 1",
         "subtitle": "IRL (Radiografia)",
-        "summary": "Evaluar seis dimensiones (CRL, BRL, TRL, IPRL, TmRL, FRL) y obtener la radiografia del proyecto",
+        "summary": "Evaluar seis dimensiones (CRL, BRL, IRL, IPRL, TmRL, FRL) y obtener la radiografia del proyecto",
         "detail": (
             "Aplica la calculadora de madurez para cliente, negocio, tecnologia, PI, equipo y financiamiento con evidencias trazables."
         ),
