@@ -572,6 +572,7 @@ _BANNER_KEY = "irl_stepper_banner"
 _CLOSE_EXPANDER_KEY = "irl_close_expander"
 _READY_KEY = "irl_level_ready"
 _EDIT_MODE_KEY = "irl_level_edit_mode"
+_QUESTION_PROGRESS_KEY = "irl_question_progress"
 
 _STATUS_CLASS_MAP = {
     "Pendiente": "pending",
@@ -605,6 +606,73 @@ def _missing_required_evidences(
         if respuestas.get(clave) == "VERDADERO" and not _is_evidence_valid(evidencias.get(clave)):
             faltantes.append(idx)
     return faltantes
+
+
+def _question_is_complete(answer: str | None, evidence: str | None) -> bool:
+    if answer not in {"VERDADERO", "FALSO"}:
+        return False
+    if answer == "VERDADERO":
+        return _is_evidence_valid(evidence)
+    return True
+
+
+def _ensure_question_progress(
+    dimension: str,
+    level_id: int,
+    total_questions: int,
+) -> dict:
+    if _QUESTION_PROGRESS_KEY not in st.session_state:
+        st.session_state[_QUESTION_PROGRESS_KEY] = {dimension: {} for dimension in STEP_TABS}
+    if dimension not in st.session_state[_QUESTION_PROGRESS_KEY]:
+        st.session_state[_QUESTION_PROGRESS_KEY][dimension] = {}
+    progress = st.session_state[_QUESTION_PROGRESS_KEY][dimension].get(level_id)
+    if not isinstance(progress, dict):
+        progress = {}
+    saved_map = progress.get("saved")
+    if not isinstance(saved_map, dict):
+        saved_map = {}
+    valid_keys = {str(idx) for idx in range(1, total_questions + 1)}
+    for key in list(saved_map.keys()):
+        if key not in valid_keys:
+            saved_map.pop(key, None)
+    for idx in range(1, total_questions + 1):
+        saved_map.setdefault(str(idx), False)
+    progress["saved"] = saved_map
+    active = progress.get("active", 0)
+    if active < 0 or active >= total_questions:
+        active = 0
+    progress["active"] = active
+    st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
+    return progress
+
+
+def _mark_question_pending(dimension: str, level_id: int, idx: int, total_questions: int) -> None:
+    progress = _ensure_question_progress(dimension, level_id, total_questions)
+    clave = str(idx)
+    progress["saved"][clave] = False
+    st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
+    error_key = f"question_error_{dimension}_{level_id}"
+    if error_key in st.session_state:
+        st.session_state[error_key] = None
+
+
+def _mark_question_saved(dimension: str, level_id: int, idx: int, total_questions: int) -> None:
+    progress = _ensure_question_progress(dimension, level_id, total_questions)
+    clave = str(idx)
+    progress["saved"][clave] = True
+    st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
+    error_key = f"question_error_{dimension}_{level_id}"
+    if error_key in st.session_state:
+        st.session_state[error_key] = None
+
+
+def _set_active_question(dimension: str, level_id: int, idx: int, total_questions: int) -> None:
+    progress = _ensure_question_progress(dimension, level_id, total_questions)
+    if total_questions <= 0:
+        progress["active"] = 0
+    else:
+        progress["active"] = max(0, min(idx, total_questions - 1))
+    st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
 
 
 def _init_irl_state() -> None:
@@ -676,6 +744,42 @@ def _init_irl_state() -> None:
                     st.session_state[_STATE_KEY][dimension][level_id].get("en_calculo", False)
                 )
                 st.session_state[_EDIT_MODE_KEY][dimension][level_id] = not en_calculo
+    if _QUESTION_PROGRESS_KEY not in st.session_state:
+        st.session_state[_QUESTION_PROGRESS_KEY] = {dimension: {} for dimension in STEP_TABS}
+    for dimension in STEP_TABS:
+        if dimension not in st.session_state[_QUESTION_PROGRESS_KEY]:
+            st.session_state[_QUESTION_PROGRESS_KEY][dimension] = {}
+        for level in LEVEL_DEFINITIONS.get(dimension, []):
+            level_id = level["nivel"]
+            preguntas = level.get("preguntas") or []
+            total_questions = len(preguntas)
+            if not total_questions:
+                st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = {
+                    "active": 0,
+                    "saved": {},
+                }
+                continue
+            progress = _ensure_question_progress(dimension, level_id, total_questions)
+            level_state = st.session_state[_STATE_KEY][dimension][level_id]
+            first_pending: int | None = None
+            for idx in range(1, total_questions + 1):
+                clave = str(idx)
+                respuesta = level_state.get("respuestas_preguntas", {}).get(clave)
+                evidencia = level_state.get("evidencias_preguntas", {}).get(clave)
+                is_complete = _question_is_complete(respuesta, evidencia)
+                progress["saved"][clave] = is_complete
+                if not is_complete and first_pending is None:
+                    first_pending = idx - 1
+            if first_pending is None:
+                first_pending = total_questions - 1 if total_questions else 0
+            selector_key = f"selector_{dimension}_{level_id}"
+            existing_selector = st.session_state.get(selector_key)
+            if isinstance(existing_selector, int) and 0 <= existing_selector < total_questions:
+                progress["active"] = existing_selector
+            else:
+                progress["active"] = first_pending
+                st.session_state[selector_key] = first_pending
+            st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
     if _ERROR_KEY not in st.session_state:
         st.session_state[_ERROR_KEY] = {dimension: {} for dimension in STEP_TABS}
     if _BANNER_KEY not in st.session_state:
@@ -782,6 +886,7 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
         return
     state = _level_state(dimension, level_id)
     preguntas = level_data.get("preguntas") or []
+    selector_key = f"selector_{dimension}_{level_id}"
     if preguntas:
         evidencias_estado = state.get("evidencias_preguntas") or {}
         aggregated: list[str] = []
@@ -797,13 +902,28 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
                 aggregated.append(str(evidencia_val).strip())
         evidencia_join_key = f"evid_{dimension}_{level_id}"
         st.session_state[evidencia_join_key] = " \n".join(aggregated)
+        total_questions = len(preguntas)
+        progress = _ensure_question_progress(dimension, level_id, total_questions)
+        first_pending: int | None = None
+        for idx, _ in enumerate(preguntas, start=1):
+            clave = str(idx)
+            respuesta_guardada = state.get("respuestas_preguntas", {}).get(clave)
+            evidencia_guardada = evidencias_estado.get(clave, "")
+            completo = _question_is_complete(respuesta_guardada, evidencia_guardada)
+            progress["saved"][clave] = completo
+            if not completo and first_pending is None:
+                first_pending = idx - 1
+        if first_pending is None:
+            first_pending = total_questions - 1 if total_questions else 0
+        progress["active"] = first_pending
+        st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
+        st.session_state[selector_key] = first_pending
     else:
         answer_key = f"resp_{dimension}_{level_id}"
         evidencia_key = f"evid_{dimension}_{level_id}"
         valor = state.get("respuesta")
         st.session_state[answer_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
         st.session_state[evidencia_key] = state.get("evidencia", "") or ""
-    selector_key = f"selector_{dimension}_{level_id}"
     if selector_key not in st.session_state:
         st.session_state[selector_key] = 0
 
@@ -897,16 +1017,35 @@ def _aggregate_question_status(respuestas: dict[str, str | None]) -> str | None:
     return "FALSO"
 
 
-def _handle_question_answer_change(*, pregunta_key: str, evidencia_key: str) -> None:
+def _handle_question_answer_change(
+    *,
+    dimension: str,
+    level_id: int,
+    idx: int,
+    total_questions: int,
+    pregunta_key: str,
+    evidencia_key: str,
+) -> None:
     answer = st.session_state.get(pregunta_key)
     if answer != "VERDADERO":
         st.session_state[evidencia_key] = ""
+    _mark_question_pending(dimension, level_id, idx, total_questions)
 
 
 def _handle_manual_answer_change(*, answer_key: str, evidencia_key: str) -> None:
     answer = st.session_state.get(answer_key)
     if answer != "VERDADERO":
         st.session_state[evidencia_key] = ""
+
+
+def _handle_question_evidence_change(
+    *,
+    dimension: str,
+    level_id: int,
+    idx: int,
+    total_questions: int,
+) -> None:
+    _mark_question_pending(dimension, level_id, idx, total_questions)
 
 
 def _handle_level_submission(
@@ -1072,53 +1211,40 @@ def _render_dimension_tab(dimension: str) -> None:
                 if preguntas:
                     st.markdown("**Evalúa cada pregunta:**")
 
-                    def _question_completed(answer: str | None, evidence: str | None) -> bool:
-                        if answer not in {"VERDADERO", "FALSO"}:
-                            return False
-                        if answer == "VERDADERO":
-                            return _is_evidence_valid(evidence)
-                        return True
-
-                    evidencia_lookup = dict(evidencia_question_keys)
                     total_questions = len(preguntas)
-                    snapshot_completion: list[bool] = []
-                    for idx, (idx_str, pregunta_key) in enumerate(question_keys, start=1):
-                        evidencia_key_temp = evidencia_lookup.get(idx_str, "")
-                        snapshot_completion.append(
-                            _question_completed(
-                                st.session_state.get(pregunta_key),
-                                st.session_state.get(evidencia_key_temp, ""),
-                            )
-                        )
-
+                    progress = _ensure_question_progress(dimension, level_id, total_questions)
+                    saved_map = progress.get("saved", {})
+                    active_idx = progress.get("active", 0)
+                    if active_idx < 0 or active_idx >= total_questions:
+                        active_idx = max(0, total_questions - 1)
+                        _set_active_question(dimension, level_id, active_idx, total_questions)
+                    selector_key = f"selector_{dimension}_{level_id}"
+                    st.session_state[selector_key] = active_idx
+                    snapshot_completion: list[bool] = [
+                        bool(saved_map.get(str(idx), False)) for idx in range(1, total_questions + 1)
+                    ]
                     completed_questions = sum(snapshot_completion)
                     progress_fraction = (
                         completed_questions / total_questions if total_questions else 1.0
                     )
+                    prev_saved = all(snapshot_completion[:active_idx])
 
-                    selector_key = f"selector_{dimension}_{level_id}"
-                    nav_options = list(range(total_questions))
-                    if (
-                        selector_key not in st.session_state
-                        or st.session_state[selector_key] not in nav_options
-                    ):
-                        st.session_state[selector_key] = nav_options[0]
-
-                    def _format_option(idx_option: int) -> str:
-                        return f"Pregunta {idx_option + 1}"
-
-                    st.markdown("<div class='question-nav'>", unsafe_allow_html=True)
-                    selected_idx = st.radio(
-                        "Selecciona una pregunta",
-                        options=nav_options,
-                        format_func=_format_option,
-                        horizontal=True,
-                        key=selector_key,
-                        label_visibility="collapsed",
+                    stepper_items: list[str] = []
+                    for idx in range(total_questions):
+                        classes = ["question-stepper__item"]
+                        if snapshot_completion[idx]:
+                            classes.append("is-done")
+                        if idx == active_idx:
+                            classes.append("is-active")
+                        stepper_items.append(
+                            f"<span class='{' '.join(classes)}'>{idx + 1}</span>"
+                        )
+                    st.markdown(
+                        f"<div class='question-stepper'>{''.join(stepper_items)}</div>",
+                        unsafe_allow_html=True,
                     )
-                    st.markdown("</div>", unsafe_allow_html=True)
-                    active_idx = int(selected_idx)
-                    prev_complete = all(snapshot_completion[:active_idx])
+
+                    st.caption(f"Pregunta {active_idx + 1} de {total_questions}")
 
                     st.progress(progress_fraction)
                     st.caption(f"{completed_questions}/{total_questions} preguntas completadas")
@@ -1137,6 +1263,8 @@ def _render_dimension_tab(dimension: str) -> None:
                         bloque_clases.append("question-block--false")
                     else:
                         bloque_clases.append("question-block--pending")
+                    if snapshot_completion[active_idx]:
+                        bloque_clases.append("question-block--saved")
                     if locked:
                         bloque_clases.append("question-block--locked")
 
@@ -1144,7 +1272,7 @@ def _render_dimension_tab(dimension: str) -> None:
                         f"<div class='{' '.join(bloque_clases)}'>",
                         unsafe_allow_html=True,
                     )
-                    if active_idx > 0 and not prev_complete:
+                    if active_idx > 0 and not prev_saved:
                         st.caption(":lock: Completa la pregunta anterior para habilitar esta sección.")
 
                     cabecera_col, opciones_col = st.columns([7, 3])
@@ -1175,9 +1303,13 @@ def _render_dimension_tab(dimension: str) -> None:
                             key=pregunta_key,
                             horizontal=True,
                             label_visibility="collapsed",
-                            disabled=locked or (active_idx > 0 and not prev_complete),
+                            disabled=locked or (active_idx > 0 and not prev_saved),
                             on_change=_handle_question_answer_change,
                             kwargs={
+                                "dimension": dimension,
+                                "level_id": level_id,
+                                "idx": active_idx + 1,
+                                "total_questions": total_questions,
                                 "pregunta_key": pregunta_key,
                                 "evidencia_key": evidencia_pregunta_key,
                             },
@@ -1189,7 +1321,14 @@ def _render_dimension_tab(dimension: str) -> None:
                         placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
                         height=90,
                         max_chars=STEP_CONFIG["max_char_limit"],
-                        disabled=locked or not requiere_evidencia or (active_idx > 0 and not prev_complete),
+                        disabled=locked or not requiere_evidencia or (active_idx > 0 and not prev_saved),
+                        on_change=_handle_question_evidence_change,
+                        kwargs={
+                            "dimension": dimension,
+                            "level_id": level_id,
+                            "idx": active_idx + 1,
+                            "total_questions": total_questions,
+                        },
                     )
                     if requiere_evidencia:
                         contador = len(_clean_text(evidencia_texto))
@@ -1212,6 +1351,84 @@ def _render_dimension_tab(dimension: str) -> None:
                         )
 
                     st.markdown("</div>", unsafe_allow_html=True)
+
+                    action_cols = st.columns([1, 2])
+                    prev_disabled = active_idx == 0
+                    if locked:
+                        avanzar_disabled = active_idx >= total_questions - 1
+                    else:
+                        avanzar_disabled = active_idx > 0 and not snapshot_completion[active_idx - 1]
+                    btn_prev = action_cols[0].button(
+                        "Anterior",
+                        key=f"btn_prev_{dimension}_{level_id}_{active_idx}",
+                        disabled=prev_disabled,
+                        use_container_width=True,
+                    )
+                    if locked:
+                        avanzar_label = "Siguiente" if active_idx < total_questions - 1 else "Fin"
+                    else:
+                        avanzar_label = (
+                            "Guardar y finalizar" if active_idx == total_questions - 1 else "Guardar y avanzar"
+                        )
+                    btn_avanzar = action_cols[1].button(
+                        avanzar_label,
+                        key=f"btn_step_save_{dimension}_{level_id}_{active_idx}",
+                        disabled=avanzar_disabled,
+                        use_container_width=True,
+                    )
+
+                    question_error_key = f"question_error_{dimension}_{level_id}"
+                    if btn_prev:
+                        nuevo_idx = max(active_idx - 1, 0)
+                        _set_active_question(dimension, level_id, nuevo_idx, total_questions)
+                        st.session_state[selector_key] = nuevo_idx
+                        st.session_state[question_error_key] = None
+                        _rerun_app()
+
+                    if btn_avanzar:
+                        if locked:
+                            if active_idx < total_questions - 1:
+                                siguiente_idx = active_idx + 1
+                                _set_active_question(
+                                    dimension,
+                                    level_id,
+                                    siguiente_idx,
+                                    total_questions,
+                                )
+                                st.session_state[selector_key] = siguiente_idx
+                                st.session_state[question_error_key] = None
+                                _rerun_app()
+                        else:
+                            error_msg = None
+                            if respuesta_actual not in {"VERDADERO", "FALSO"}:
+                                error_msg = "Selecciona una opción antes de avanzar."
+                            elif respuesta_actual == "VERDADERO" and not evidencia_valida:
+                                error_msg = "Escribe los antecedentes de verificación para guardar como VERDADERO."
+                            if error_msg:
+                                st.session_state[question_error_key] = error_msg
+                            else:
+                                _mark_question_saved(
+                                    dimension,
+                                    level_id,
+                                    active_idx + 1,
+                                    total_questions,
+                                )
+                                st.session_state[question_error_key] = None
+                                if active_idx < total_questions - 1:
+                                    siguiente_idx = active_idx + 1
+                                else:
+                                    siguiente_idx = active_idx
+                                _set_active_question(
+                                    dimension,
+                                    level_id,
+                                    siguiente_idx,
+                                    total_questions,
+                                )
+                                st.session_state[selector_key] = siguiente_idx
+                                _rerun_app()
+
+                    if st.session_state.get(question_error_key):
+                        st.error(st.session_state[question_error_key])
                 else:
                     st.radio(
                         "Responder",
@@ -1276,16 +1493,17 @@ def _render_dimension_tab(dimension: str) -> None:
 
                 if preguntas:
                     normalizado_actual = _normalize_question_responses(level, respuestas_dict)
-                    ready_to_save = True
-                    for idx_str, valor in normalizado_actual.items():
-                        if valor not in {"VERDADERO", "FALSO"}:
-                            ready_to_save = False
-                            break
-                        if valor == "VERDADERO" and not _is_evidence_valid(
-                            evidencias_dict_envio.get(idx_str)
-                        ):
-                            ready_to_save = False
-                            break
+                    ready_to_save = all(snapshot_completion)
+                    if ready_to_save:
+                        for idx_str, valor in normalizado_actual.items():
+                            if valor not in {"VERDADERO", "FALSO"}:
+                                ready_to_save = False
+                                break
+                            if valor == "VERDADERO" and not _is_evidence_valid(
+                                evidencias_dict_envio.get(idx_str)
+                            ):
+                                ready_to_save = False
+                                break
                 else:
                     valor_manual = st.session_state.get(answer_key)
                     if valor_manual in {"VERDADERO", "FALSO"}:
@@ -1302,12 +1520,19 @@ def _render_dimension_tab(dimension: str) -> None:
                     st.error(error_msg)
 
                 col_guardar, col_editar = st.columns([2, 1])
-                guardar = col_guardar.button(
-                    "Guardar",
-                    type="primary",
-                    disabled=locked or not ready_to_save,
-                    key=f"btn_guardar_{dimension}_{level_id}",
-                )
+                save_wrapper_class = "level-save-btn"
+                if ready_to_save and not locked:
+                    save_wrapper_class += " level-save-btn--ready"
+                with col_guardar:
+                    st.markdown(f"<div class='{save_wrapper_class}'>", unsafe_allow_html=True)
+                    guardar = st.button(
+                        "Guardar",
+                        type="primary",
+                        disabled=locked or not ready_to_save,
+                        key=f"btn_guardar_{dimension}_{level_id}",
+                        use_container_width=True,
+                    )
+                    st.markdown("</div>", unsafe_allow_html=True)
                 show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
                 editar_label = "Cancelar" if show_cancel else "Editar"
                 editar_disabled = False
@@ -1997,6 +2222,10 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     box-shadow: 0 12px 22px rgba(183, 59, 59, 0.16);
 }
 
+.question-block--saved {
+    box-shadow: 0 16px 28px rgba(14, 92, 64, 0.24);
+}
+
 .question-block--locked {
     background: rgba(244, 246, 250, 0.82);
     box-shadow: none;
@@ -2076,50 +2305,62 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     font-weight: 600;
 }
 
-.question-nav [data-baseweb="radio"] {
+.question-stepper {
     display: flex;
     flex-wrap: wrap;
     gap: 0.45rem;
-    background: rgba(31, 55, 91, 0.06);
-    padding: 0.35rem;
-    border-radius: 14px;
+    margin-bottom: 0.6rem;
 }
 
-.question-nav [data-baseweb="radio"] > label {
-    flex: 1 0 auto;
+.question-stepper__item {
+    min-width: 2.2rem;
+    padding: 0.35rem 0.7rem;
     border-radius: 12px;
-    padding: 0.35rem 0.85rem;
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid transparent;
-    box-shadow: 0 4px 10px rgba(var(--shadow-color), 0.12);
+    background: rgba(31, 55, 91, 0.08);
+    color: rgba(38, 52, 71, 0.78);
     font-weight: 600;
-    color: rgba(38, 52, 71, 0.88);
-    cursor: pointer;
+    font-size: 0.85rem;
+    text-align: center;
+    border: 1px solid transparent;
     transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.question-nav [data-baseweb="radio"] > label:hover {
-    box-shadow: 0 8px 16px rgba(var(--shadow-color), 0.18);
+.question-stepper__item.is-done {
+    background: linear-gradient(135deg, rgba(40, 96, 165, 0.22), rgba(29, 71, 128, 0.18));
+    color: rgba(22, 52, 99, 0.95);
+    box-shadow: 0 10px 20px rgba(29, 71, 128, 0.22);
 }
 
-.question-nav [data-baseweb="radio"] > label:has(input:checked) {
-    background: linear-gradient(135deg, rgba(21, 118, 78, 0.2), rgba(12, 74, 50, 0.24));
-    color: rgba(12, 62, 44, 0.95);
+.question-stepper__item.is-active {
+    background: linear-gradient(135deg, rgba(21, 118, 78, 0.24), rgba(12, 74, 50, 0.2));
+    color: rgba(12, 62, 44, 0.96);
     box-shadow: 0 12px 24px rgba(14, 92, 64, 0.2);
     border-color: rgba(14, 92, 64, 0.24);
 }
 
-.question-nav [data-baseweb="radio"] > label > div:first-child,
-.question-nav [data-baseweb="radio"] > label > span:first-child {
-    display: none;
+.question-stepper__item.is-active.is-done {
+    background: linear-gradient(135deg, rgba(21, 118, 78, 0.26), rgba(12, 74, 50, 0.22));
 }
 
-.question-nav [data-baseweb="radio"] > label input {
-    display: none;
+.level-save-btn > div[data-testid="stButton"] {
+    display: flex;
+    width: 100%;
 }
 
-.question-nav [data-baseweb="radio"] > label p {
-    margin: 0;
+.level-save-btn > div[data-testid="stButton"] > button {
+    width: 100%;
+    border-radius: 12px;
+    font-weight: 700;
+}
+
+.level-save-btn--ready > div[data-testid="stButton"] > button {
+    background: linear-gradient(135deg, #d94a3d, #a8231c);
+    border-color: rgba(168, 35, 28, 0.88);
+    box-shadow: 0 14px 26px rgba(168, 35, 28, 0.24);
+}
+
+.level-save-btn--ready > div[data-testid="stButton"] > button:hover {
+    background: linear-gradient(135deg, #e55d4f, #b32d24);
 }
 
 .level-card--locked .question-block__counter,
