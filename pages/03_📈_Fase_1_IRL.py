@@ -1257,14 +1257,16 @@ def _render_dimension_tab(dimension: str) -> None:
                     requiere_evidencia = respuesta_actual == "VERDADERO"
                     evidencia_valida = _is_evidence_valid(evidencia_actual)
                     bloque_clases = ["question-block"]
-                    if respuesta_actual == "VERDADERO" and evidencia_valida:
-                        bloque_clases.append("question-block--true")
-                    elif respuesta_actual == "FALSO":
-                        bloque_clases.append("question-block--false")
+                    if snapshot_completion[active_idx]:
+                        if respuesta_actual == "VERDADERO" and evidencia_valida:
+                            bloque_clases.append("question-block--true")
+                        elif respuesta_actual == "FALSO":
+                            bloque_clases.append("question-block--false")
+                        else:
+                            bloque_clases.append("question-block--pending")
+                        bloque_clases.append("question-block--saved")
                     else:
                         bloque_clases.append("question-block--pending")
-                    if snapshot_completion[active_idx]:
-                        bloque_clases.append("question-block--saved")
                     if locked:
                         bloque_clases.append("question-block--locked")
 
@@ -1278,12 +1280,16 @@ def _render_dimension_tab(dimension: str) -> None:
                     cabecera_col, opciones_col = st.columns([7, 3])
                     with cabecera_col:
                         pregunta_html = escape(pregunta).replace("\n", "<br>")
-                        chip_text = "VERDADERO" if respuesta_actual == "VERDADERO" else "FALSO"
-                        chip_class = (
-                            "question-block__chip question-block__chip--true"
-                            if respuesta_actual == "VERDADERO"
-                            else "question-block__chip question-block__chip--false"
-                        )
+                        if snapshot_completion[active_idx]:
+                            if respuesta_actual == "VERDADERO":
+                                chip_text = "VERDADERO"
+                                chip_class = "question-block__chip question-block__chip--true"
+                            else:
+                                chip_text = "FALSO"
+                                chip_class = "question-block__chip question-block__chip--false"
+                        else:
+                            chip_text = "SIN RESPONDER"
+                            chip_class = "question-block__chip question-block__chip--pending"
                         st.markdown(
                             (
                                 "<div class='question-block__header'>"
@@ -1358,24 +1364,36 @@ def _render_dimension_tab(dimension: str) -> None:
                         avanzar_disabled = active_idx >= total_questions - 1
                     else:
                         avanzar_disabled = active_idx > 0 and not snapshot_completion[active_idx - 1]
-                    btn_prev = action_cols[0].button(
-                        "Anterior",
-                        key=f"btn_prev_{dimension}_{level_id}_{active_idx}",
-                        disabled=prev_disabled,
-                        use_container_width=True,
-                    )
+                    with action_cols[0]:
+                        st.markdown(
+                            "<div class='question-action question-action--prev'>",
+                            unsafe_allow_html=True,
+                        )
+                        btn_prev = st.button(
+                            "Anterior",
+                            key=f"btn_prev_{dimension}_{level_id}_{active_idx}",
+                            disabled=prev_disabled,
+                            use_container_width=True,
+                        )
+                        st.markdown("</div>", unsafe_allow_html=True)
                     if locked:
                         avanzar_label = "Siguiente" if active_idx < total_questions - 1 else "Fin"
                     else:
                         avanzar_label = (
                             "Guardar y finalizar" if active_idx == total_questions - 1 else "Guardar y avanzar"
                         )
-                    btn_avanzar = action_cols[1].button(
-                        avanzar_label,
-                        key=f"btn_step_save_{dimension}_{level_id}_{active_idx}",
-                        disabled=avanzar_disabled,
-                        use_container_width=True,
-                    )
+                    with action_cols[1]:
+                        st.markdown(
+                            "<div class='question-action question-action--next'>",
+                            unsafe_allow_html=True,
+                        )
+                        btn_avanzar = st.button(
+                            avanzar_label,
+                            key=f"btn_step_save_{dimension}_{level_id}_{active_idx}",
+                            disabled=avanzar_disabled,
+                            use_container_width=True,
+                        )
+                        st.markdown("</div>", unsafe_allow_html=True)
 
                     question_error_key = f"question_error_{dimension}_{level_id}"
                     if btn_prev:
@@ -2293,6 +2311,12 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     border: none;
 }
 
+.question-block__chip--pending {
+    background: rgba(134, 149, 170, 0.18);
+    color: rgba(58, 76, 102, 0.9);
+    border: none;
+}
+
 .question-block__counter {
     text-align: right;
     margin-top: 0.25rem;
@@ -2361,6 +2385,48 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 
 .level-save-btn--ready > div[data-testid="stButton"] > button:hover {
     background: linear-gradient(135deg, #e55d4f, #b32d24);
+}
+
+.question-action > div[data-testid="stButton"] {
+    width: 100%;
+}
+
+.question-action > div[data-testid="stButton"] > button {
+    width: 100%;
+    border-radius: 12px;
+    font-weight: 700;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.question-action--prev > div[data-testid="stButton"] > button {
+    background: rgba(31, 55, 91, 0.08);
+    color: rgba(38, 52, 71, 0.88);
+    border: 1px solid rgba(31, 55, 91, 0.18);
+}
+
+.question-action--prev > div[data-testid="stButton"] > button:hover {
+    background: rgba(31, 55, 91, 0.12);
+    border-color: rgba(31, 55, 91, 0.28);
+    transform: translateY(-1px);
+}
+
+.question-action--next > div[data-testid="stButton"] > button {
+    background: linear-gradient(135deg, #1e9d6c, #15754e) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(17, 94, 63, 0.85);
+    box-shadow: 0 12px 22px rgba(21, 117, 78, 0.24);
+}
+
+.question-action--next > div[data-testid="stButton"] > button:hover:enabled {
+    background: linear-gradient(135deg, #25b27c, #1b8a5d) !important;
+    box-shadow: 0 16px 28px rgba(21, 117, 78, 0.28);
+    transform: translateY(-1px);
+}
+
+.question-action--next > div[data-testid="stButton"] > button:disabled {
+    opacity: 0.6;
+    box-shadow: none;
+    cursor: not-allowed;
 }
 
 .level-card--locked .question-block__counter,
