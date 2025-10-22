@@ -1060,6 +1060,30 @@ def _handle_question_toggle_change(
     _mark_question_pending(dimension, level_id, idx, total_questions)
 
 
+def _persist_question_progress(
+    dimension: str,
+    level_id: int,
+    idx: int,
+    answer: str | None,
+    evidence: str | None,
+) -> None:
+    level_state = _level_state(dimension, level_id)
+    respuestas = dict(level_state.get("respuestas_preguntas") or {})
+    evidencias = dict(level_state.get("evidencias_preguntas") or {})
+    clave = str(idx)
+    if answer in {"VERDADERO", "FALSO"}:
+        respuestas[clave] = answer
+    else:
+        respuestas[clave] = None
+    if answer == "VERDADERO":
+        evidencias[clave] = _clean_text(evidence)
+    else:
+        evidencias[clave] = ""
+    level_state["respuestas_preguntas"] = respuestas
+    level_state["evidencias_preguntas"] = evidencias
+    st.session_state[_STATE_KEY][dimension][level_id] = level_state
+
+
 def _handle_level_submission(
     dimension: str,
     level_id: int,
@@ -1393,50 +1417,29 @@ def _render_dimension_tab(dimension: str) -> None:
 
                     st.markdown("</div>", unsafe_allow_html=True)
 
-                    action_cols = st.columns([1, 2])
-                    prev_disabled = active_idx == 0
                     if locked:
                         avanzar_disabled = active_idx >= total_questions - 1
-                    else:
-                        avanzar_disabled = active_idx > 0 and not snapshot_completion[active_idx - 1]
-                    with action_cols[0]:
-                        st.markdown(
-                            "<div class='question-action question-action--prev'>",
-                            unsafe_allow_html=True,
-                        )
-                        btn_prev = st.button(
-                            "Anterior",
-                            key=f"btn_prev_{dimension}_{level_id}_{active_idx}",
-                            disabled=prev_disabled,
-                            use_container_width=True,
-                        )
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    if locked:
                         avanzar_label = "Siguiente" if active_idx < total_questions - 1 else "Fin"
                     else:
+                        avanzar_disabled = active_idx > 0 and not snapshot_completion[active_idx - 1]
                         avanzar_label = (
-                            "Guardar y finalizar" if active_idx == total_questions - 1 else "Guardar y avanzar"
+                            "Guardar y continuar con el siguiente nivel"
+                            if active_idx == total_questions - 1
+                            else "Guardar y avanzar"
                         )
-                    with action_cols[1]:
-                        st.markdown(
-                            "<div class='question-action question-action--next'>",
-                            unsafe_allow_html=True,
-                        )
-                        btn_avanzar = st.button(
-                            avanzar_label,
-                            key=f"btn_step_save_{dimension}_{level_id}_{active_idx}",
-                            disabled=avanzar_disabled,
-                            use_container_width=True,
-                        )
-                        st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        "<div class='question-action question-action--next question-action--single'>",
+                        unsafe_allow_html=True,
+                    )
+                    btn_avanzar = st.button(
+                        avanzar_label,
+                        key=f"btn_step_save_{dimension}_{level_id}_{active_idx}",
+                        disabled=avanzar_disabled,
+                        use_container_width=True,
+                    )
+                    st.markdown("</div>", unsafe_allow_html=True)
 
                     question_error_key = f"question_error_{dimension}_{level_id}"
-                    if btn_prev:
-                        nuevo_idx = max(active_idx - 1, 0)
-                        _set_active_question(dimension, level_id, nuevo_idx, total_questions)
-                        st.session_state[selector_key] = nuevo_idx
-                        st.session_state[question_error_key] = None
-                        _rerun_app()
 
                     if btn_avanzar:
                         if locked:
@@ -1460,6 +1463,13 @@ def _render_dimension_tab(dimension: str) -> None:
                             if error_msg:
                                 st.session_state[question_error_key] = error_msg
                             else:
+                                _persist_question_progress(
+                                    dimension,
+                                    level_id,
+                                    active_idx + 1,
+                                    respuesta_actual,
+                                    evidencia_texto if respuesta_actual == "VERDADERO" else "",
+                                )
                                 _mark_question_saved(
                                     dimension,
                                     level_id,
