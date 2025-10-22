@@ -1024,7 +1024,8 @@ def _render_dimension_tab(dimension: str) -> None:
             normalizado_actual: dict[str, str | None] | None = None
             ready_to_save = False
 
-            with st.form(f"form_{dimension}_{level_id}", clear_on_submit=False):
+            level_container = st.container()
+            with level_container:
                 st.markdown(
                     f"<p class='level-card__intro'>{escape(level['descripcion'])}</p>",
                     unsafe_allow_html=True,
@@ -1240,17 +1241,22 @@ def _render_dimension_tab(dimension: str) -> None:
                     st.error(error_msg)
 
                 col_guardar, col_editar = st.columns([2, 1])
-                guardar = col_guardar.form_submit_button(
+                guardar = col_guardar.button(
                     "Guardar",
                     type="primary",
                     disabled=locked or not ready_to_save,
+                    key=f"btn_guardar_{dimension}_{level_id}",
                 )
                 show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
                 editar_label = "Cancelar" if show_cancel else "Editar"
                 editar_disabled = False
                 if not state.get("en_calculo") and edit_mode:
                     editar_disabled = True
-                editar = col_editar.form_submit_button(editar_label, disabled=editar_disabled)
+                editar = col_editar.button(
+                    editar_label,
+                    disabled=editar_disabled,
+                    key=f"btn_editar_{dimension}_{level_id}",
+                )
 
             if editar:
                 if locked:
