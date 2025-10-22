@@ -897,18 +897,18 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
     if preguntas:
         evidencias_estado = state.get("evidencias_preguntas") or {}
         aggregated: list[str] = []
-            for idx, _ in enumerate(preguntas, start=1):
-                clave = str(idx)
-                pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
-                evidencia_key = f"evid_{dimension}_{level_id}_{idx}"
-                toggle_key = f"toggle_{dimension}_{level_id}_{idx}"
-                valor = state.get("respuestas_preguntas", {}).get(clave)
-                st.session_state[pregunta_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
-                st.session_state[toggle_key] = st.session_state[pregunta_key] == "VERDADERO"
-                evidencia_val = evidencias_estado.get(clave, "") or ""
-                st.session_state[evidencia_key] = evidencia_val
-                if evidencia_val:
-                    aggregated.append(str(evidencia_val).strip())
+        for idx, _ in enumerate(preguntas, start=1):
+            clave = str(idx)
+            pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
+            evidencia_key = f"evid_{dimension}_{level_id}_{idx}"
+            toggle_key = f"toggle_{dimension}_{level_id}_{idx}"
+            valor = state.get("respuestas_preguntas", {}).get(clave)
+            st.session_state[pregunta_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
+            st.session_state[toggle_key] = st.session_state[pregunta_key] == "VERDADERO"
+            evidencia_val = evidencias_estado.get(clave, "") or ""
+            st.session_state[evidencia_key] = evidencia_val
+            if evidencia_val:
+                aggregated.append(str(evidencia_val).strip())
         evidencia_join_key = f"evid_{dimension}_{level_id}"
         st.session_state[evidencia_join_key] = " \n".join(aggregated)
         total_questions = len(preguntas)
