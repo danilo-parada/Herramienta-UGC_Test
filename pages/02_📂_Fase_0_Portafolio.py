@@ -732,7 +732,7 @@ def _sample_portafolio() -> pd.DataFrame:
 
 
 
-            "id_innovacion": "P-001", "fecha_creacion": "2024-01-12",
+            "id_innovacion": 101, "fecha_creacion": "2024-01-12",
 
 
 
@@ -812,7 +812,7 @@ def _sample_portafolio() -> pd.DataFrame:
 
 
 
-            "id_innovacion": "P-002", "fecha_creacion": "2023-09-03",
+            "id_innovacion": 102, "fecha_creacion": "2023-09-03",
 
 
 
@@ -892,7 +892,7 @@ def _sample_portafolio() -> pd.DataFrame:
 
 
 
-            "id_innovacion": "P-003", "fecha_creacion": "2022-05-18",
+            "id_innovacion": 103, "fecha_creacion": "2022-05-18",
 
 
 
@@ -972,7 +972,7 @@ def _sample_portafolio() -> pd.DataFrame:
 
 
 
-            "id_innovacion": "P-004", "fecha_creacion": "2024-03-22",
+            "id_innovacion": 104, "fecha_creacion": "2024-03-22",
 
 
 
@@ -1052,7 +1052,7 @@ def _sample_portafolio() -> pd.DataFrame:
 
 
 
-            "id_innovacion": "P-005", "fecha_creacion": "2023-01-09",
+            "id_innovacion": 105, "fecha_creacion": "2023-01-09",
 
 
 
@@ -1316,7 +1316,7 @@ def _template_instructions() -> List[str]:
 
 
 
-        "1. id_innovacion (texto/entero): identificador unico. Ej.: P-101.",
+        "1. id_innovacion (entero): identificador unico. Ej.: 101.",
 
 
 
