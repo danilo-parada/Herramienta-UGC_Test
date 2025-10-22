@@ -27,16 +27,16 @@ from core.theme import load_theme
 DIMENSION_DESCRIPTIONS = {
     "CRL": "Clientes/Mercado",
     "BRL": "Negocio/Modelo",
-    "IRL": "Tecnológico",
+    "TRL": "Tecnológico",
     "IPRL": "Propiedad Intelectual",
     "TmRL": "Equipo/Capacidades",
-    "FRL": "Finanzas/Riesgo"
+    "FRL": "Finanzas/Riesgo",
 }
 
 IRL_DIMENSIONS = [
     ("CRL", 0),
     ("BRL", 0),
-    ("IRL", 4),
+    ("TRL", 4),
     ("IPRL", 5),
     ("TmRL", 6),
     ("FRL", 5),
@@ -202,7 +202,7 @@ FRL_LEVELS = [
     },
 ]
 
-IRL_LEVELS = [
+TRL_LEVELS = [
     {
         "nivel": 1,
         "descripcion": "Principios básicos observados.",
@@ -552,7 +552,7 @@ STEP_TABS = [dimension for dimension, _ in IRL_DIMENSIONS]
 LEVEL_DEFINITIONS = {
     "CRL": CRL_LEVELS,
     "BRL": BRL_LEVELS,
-    "IRL": IRL_LEVELS,
+    "TRL": TRL_LEVELS,
     "IPRL": IPRL_LEVELS,
     "TmRL": TMRL_LEVELS,
     "FRL": FRL_LEVELS,
