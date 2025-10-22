@@ -804,7 +804,8 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
         st.session_state[answer_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
         st.session_state[evidencia_key] = state.get("evidencia", "") or ""
     selector_key = f"selector_{dimension}_{level_id}"
-    st.session_state[selector_key] = 0
+    if selector_key not in st.session_state:
+        st.session_state[selector_key] = 0
 
 
 def _sync_dimension_score(dimension: str) -> int:
@@ -1089,7 +1090,6 @@ def _render_dimension_tab(dimension: str) -> None:
                         label_visibility="collapsed",
                     )
                     active_idx = int(selected_idx)
-                    st.session_state[selector_key] = active_idx
                     prev_complete = all(snapshot_completion[:active_idx])
 
                     st.progress(progress_fraction)
