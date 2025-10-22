@@ -581,6 +581,13 @@ _STATUS_CLASS_MAP = {
     "Revisión requerida": "review",
 }
 
+IRL_IMPORTANT_HTML = """
+<div class="irl-important">
+  <strong>Importante:</strong> Este formulario es una herramienta de auto-diagnóstico para identificar el estado actual de la EBCT respecto a: desarrollo tecnológico, estrategia de negocios, propiedad intelectual, madurez del equipo, estrategia de financiamiento y el valor generado para clientes o usuarios. Evalúa una sola tecnología por formulario. Para un seguimiento dinámico y recomendaciones detalladas, visita la plataforma <a href="https://www.calculadorarl.cl" target="_blank">Calculadora RL</a>.
+  <br><span class="irl-important__hint">La calculadora solo considera alcanzado un nivel cuando <em>todas</em> las respuestas son VERDADERAS de manera consecutiva desde el primer nivel.</span>
+</div>
+"""
+
 
 def _clean_text(value: str | None) -> str:
     return (value or "").strip()
@@ -890,16 +897,18 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
     if preguntas:
         evidencias_estado = state.get("evidencias_preguntas") or {}
         aggregated: list[str] = []
-        for idx, _ in enumerate(preguntas, start=1):
-            clave = str(idx)
-            pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
-            evidencia_key = f"evid_{dimension}_{level_id}_{idx}"
-            valor = state.get("respuestas_preguntas", {}).get(clave)
-            st.session_state[pregunta_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
-            evidencia_val = evidencias_estado.get(clave, "") or ""
-            st.session_state[evidencia_key] = evidencia_val
-            if evidencia_val:
-                aggregated.append(str(evidencia_val).strip())
+            for idx, _ in enumerate(preguntas, start=1):
+                clave = str(idx)
+                pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
+                evidencia_key = f"evid_{dimension}_{level_id}_{idx}"
+                toggle_key = f"toggle_{dimension}_{level_id}_{idx}"
+                valor = state.get("respuestas_preguntas", {}).get(clave)
+                st.session_state[pregunta_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
+                st.session_state[toggle_key] = st.session_state[pregunta_key] == "VERDADERO"
+                evidencia_val = evidencias_estado.get(clave, "") or ""
+                st.session_state[evidencia_key] = evidencia_val
+                if evidencia_val:
+                    aggregated.append(str(evidencia_val).strip())
         evidencia_join_key = f"evid_{dimension}_{level_id}"
         st.session_state[evidencia_join_key] = " \n".join(aggregated)
         total_questions = len(preguntas)
@@ -1017,21 +1026,6 @@ def _aggregate_question_status(respuestas: dict[str, str | None]) -> str | None:
     return "FALSO"
 
 
-def _handle_question_answer_change(
-    *,
-    dimension: str,
-    level_id: int,
-    idx: int,
-    total_questions: int,
-    pregunta_key: str,
-    evidencia_key: str,
-) -> None:
-    answer = st.session_state.get(pregunta_key)
-    if answer != "VERDADERO":
-        st.session_state[evidencia_key] = ""
-    _mark_question_pending(dimension, level_id, idx, total_questions)
-
-
 def _handle_manual_answer_change(*, answer_key: str, evidencia_key: str) -> None:
     answer = st.session_state.get(answer_key)
     if answer != "VERDADERO":
@@ -1045,6 +1039,24 @@ def _handle_question_evidence_change(
     idx: int,
     total_questions: int,
 ) -> None:
+    _mark_question_pending(dimension, level_id, idx, total_questions)
+
+
+def _handle_question_toggle_change(
+    *,
+    dimension: str,
+    level_id: int,
+    idx: int,
+    total_questions: int,
+    pregunta_key: str,
+    evidencia_key: str,
+    toggle_key: str,
+) -> None:
+    marcado = bool(st.session_state.get(toggle_key))
+    nuevo_valor = "VERDADERO" if marcado else "FALSO"
+    st.session_state[pregunta_key] = nuevo_valor
+    if nuevo_valor != "VERDADERO":
+        st.session_state[evidencia_key] = ""
     _mark_question_pending(dimension, level_id, idx, total_questions)
 
 
@@ -1121,6 +1133,8 @@ def _render_dimension_tab(dimension: str) -> None:
     if banner_msg:
         banner_slot.info(banner_msg)
 
+    st.markdown(IRL_IMPORTANT_HTML, unsafe_allow_html=True)
+
     progreso = counts["completed"] / counts["total"] if counts["total"] else 0
     st.markdown(
         f"**{counts['completed']} de {counts['total']} niveles respondidos**"
@@ -1172,6 +1186,7 @@ def _render_dimension_tab(dimension: str) -> None:
                 idx_str = str(idx)
                 pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
                 evidencia_pregunta_key = f"evid_{dimension}_{level_id}_{idx}"
+                toggle_key = f"toggle_{dimension}_{level_id}_{idx}"
                 question_keys.append((idx_str, pregunta_key))
                 evidencia_question_keys.append((idx_str, evidencia_pregunta_key))
                 if pregunta_key not in st.session_state:
@@ -1179,6 +1194,8 @@ def _render_dimension_tab(dimension: str) -> None:
                     st.session_state[pregunta_key] = (
                         default_option if default_option in {"VERDADERO", "FALSO"} else "FALSO"
                     )
+                if toggle_key not in st.session_state:
+                    st.session_state[toggle_key] = st.session_state[pregunta_key] == "VERDADERO"
                 if evidencia_pregunta_key not in st.session_state:
                     st.session_state[evidencia_pregunta_key] = evidencias_preguntas_state.get(idx_str, "")
 
@@ -1276,25 +1293,28 @@ def _render_dimension_tab(dimension: str) -> None:
                     )
                     if active_idx > 0 and not prev_saved:
                         st.caption(":lock: Completa la pregunta anterior para habilitar esta sección.")
+                    if not snapshot_completion[active_idx]:
+                        st.caption(":memo: Respuesta pendiente de guardar.")
 
                     cabecera_col, opciones_col = st.columns([7, 3])
                     with cabecera_col:
                         pregunta_html = escape(pregunta).replace("\n", "<br>")
-                        if snapshot_completion[active_idx]:
-                            if respuesta_actual == "VERDADERO":
-                                chip_text = "VERDADERO"
-                                chip_class = "question-block__chip question-block__chip--true"
-                            else:
-                                chip_text = "FALSO"
-                                chip_class = "question-block__chip question-block__chip--false"
-                        else:
-                            chip_text = "SIN RESPONDER"
-                            chip_class = "question-block__chip question-block__chip--pending"
-                        st.markdown(
-                            (
-                                "<div class='question-block__header'>"
-                                f"<div class='question-block__badge'>{active_idx + 1}</div>"
-                                "<div class='question-block__body'>"
+                    if respuesta_actual == "VERDADERO":
+                        chip_text = "VERDADERO"
+                        chip_class = "question-block__chip question-block__chip--true"
+                    elif respuesta_actual == "FALSO":
+                        chip_text = "FALSO"
+                        chip_class = "question-block__chip question-block__chip--false"
+                    else:
+                        chip_text = "SIN RESPUESTA"
+                        chip_class = "question-block__chip question-block__chip--pending"
+                    if not snapshot_completion[active_idx]:
+                        chip_class += " question-block__chip--draft"
+                    st.markdown(
+                        (
+                            "<div class='question-block__header'>"
+                            f"<div class='question-block__badge'>{active_idx + 1}</div>"
+                            "<div class='question-block__body'>"
                                 f"<div class='question-block__text'>{pregunta_html}</div>"
                                 f"<div class='{chip_class}'>{chip_text}</div>"
                                 "</div>"
@@ -1303,14 +1323,17 @@ def _render_dimension_tab(dimension: str) -> None:
                             unsafe_allow_html=True,
                         )
                     with opciones_col:
-                        st.radio(
-                            "Selecciona una opción",
-                            options=["VERDADERO", "FALSO"],
-                            key=pregunta_key,
-                            horizontal=True,
+                        toggle_key = f"toggle_{dimension}_{level_id}_{active_idx + 1}"
+                        st.session_state[toggle_key] = respuesta_actual == "VERDADERO"
+                        toggle_disabled = locked or (active_idx > 0 and not prev_saved)
+                        st.markdown("<div class='question-toggle'>", unsafe_allow_html=True)
+                        st.toggle(
+                            "Marcar como VERDADERO",
+                            key=toggle_key,
+                            value=st.session_state[toggle_key],
+                            disabled=toggle_disabled,
                             label_visibility="collapsed",
-                            disabled=locked or (active_idx > 0 and not prev_saved),
-                            on_change=_handle_question_answer_change,
+                            on_change=_handle_question_toggle_change,
                             kwargs={
                                 "dimension": dimension,
                                 "level_id": level_id,
@@ -1318,8 +1341,20 @@ def _render_dimension_tab(dimension: str) -> None:
                                 "total_questions": total_questions,
                                 "pregunta_key": pregunta_key,
                                 "evidencia_key": evidencia_pregunta_key,
+                                "toggle_key": toggle_key,
                             },
                         )
+                        estado_actual = "VERDADERO" if st.session_state.get(toggle_key) else "FALSO"
+                        estado_clase = (
+                            "question-toggle__state question-toggle__state--true"
+                            if estado_actual == "VERDADERO"
+                            else "question-toggle__state question-toggle__state--false"
+                        )
+                        st.markdown(
+                            f"<div class='{estado_clase}'>{estado_actual}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown("</div>", unsafe_allow_html=True)
 
                     evidencia_texto = st.text_area(
                         "Antecedentes de verificación",
@@ -2092,6 +2127,41 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     border-color: rgba(143, 162, 180, 0.42);
 }
 
+.irl-important {
+    margin: 0.6rem 0 1.1rem;
+    padding: 0.85rem 1rem;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(56, 116, 209, 0.16), rgba(21, 118, 78, 0.14));
+    border: 1px solid rgba(56, 116, 209, 0.25);
+    color: rgba(26, 44, 84, 0.92);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    box-shadow: 0 12px 24px rgba(var(--shadow-color), 0.12);
+}
+
+.irl-important strong {
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+}
+
+.irl-important a {
+    color: rgba(12, 74, 50, 0.95);
+    font-weight: 700;
+    text-decoration: none;
+    border-bottom: 1px solid rgba(12, 74, 50, 0.4);
+}
+
+.irl-important a:hover {
+    color: rgba(12, 74, 50, 0.8);
+}
+
+.irl-important__hint {
+    display: block;
+    margin-top: 0.4rem;
+    font-size: 0.82rem;
+    color: rgba(26, 44, 84, 0.78);
+}
+
 .level-card {
     border-radius: 22px;
     border: 2px solid rgba(var(--shadow-color), 0.18);
@@ -2317,6 +2387,10 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     border: none;
 }
 
+.question-block__chip--draft {
+    box-shadow: inset 0 0 0 1px rgba(58, 76, 102, 0.22);
+}
+
 .question-block__counter {
     text-align: right;
     margin-top: 0.25rem;
@@ -2427,6 +2501,37 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     opacity: 0.6;
     box-shadow: none;
     cursor: not-allowed;
+}
+
+.question-toggle {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+}
+
+.question-toggle > div[data-testid="stToggle"] {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.question-toggle > div[data-testid="stToggle"] label {
+    transform: scale(1.05);
+}
+
+.question-toggle__state {
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+
+.question-toggle__state--true {
+    color: rgba(17, 94, 63, 0.95);
+}
+
+.question-toggle__state--false {
+    color: rgba(130, 32, 32, 0.92);
 }
 
 .level-card--locked .question-block__counter,
