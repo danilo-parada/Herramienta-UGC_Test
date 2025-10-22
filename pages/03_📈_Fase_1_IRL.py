@@ -783,7 +783,6 @@ def _on_question_toggle(dimension: str, level_id: int, question_idx: int) -> Non
     st.session_state[agregada_key] = ""
     ready_state = st.session_state.setdefault(_READY_KEY, {})
     ready_state.setdefault(dimension, {})[level_id] = False
-    _rerun_app()
 
 
 def _on_level_toggle(dimension: str, level_id: int) -> None:
@@ -795,7 +794,6 @@ def _on_level_toggle(dimension: str, level_id: int) -> None:
         st.session_state[evidencia_key] = ""
     ready_state = st.session_state.setdefault(_READY_KEY, {})
     ready_state.setdefault(dimension, {})[level_id] = False
-    _rerun_app()
 
 
 def _restore_level_form_values(dimension: str, level_id: int) -> None:
