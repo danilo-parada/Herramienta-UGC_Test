@@ -803,6 +803,8 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
         valor = state.get("respuesta")
         st.session_state[answer_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
         st.session_state[evidencia_key] = state.get("evidencia", "") or ""
+    selector_key = f"selector_{dimension}_{level_id}"
+    st.session_state[selector_key] = 0
 
 
 def _sync_dimension_score(dimension: str) -> int:
@@ -1052,11 +1054,9 @@ def _render_dimension_tab(dimension: str) -> None:
                             return _is_evidence_valid(evidence)
                         return True
 
-                    question_labels = [f"Pregunta {idx}" for idx in range(1, len(preguntas) + 1)]
-                    question_tabs = st.tabs(question_labels)
                     evidencia_lookup = dict(evidencia_question_keys)
-
-                    snapshot_completion = []
+                    total_questions = len(preguntas)
+                    snapshot_completion: list[bool] = []
                     for idx, (idx_str, pregunta_key) in enumerate(question_keys, start=1):
                         evidencia_key_temp = evidencia_lookup.get(idx_str, "")
                         snapshot_completion.append(
@@ -1066,100 +1066,119 @@ def _render_dimension_tab(dimension: str) -> None:
                             )
                         )
 
-                    total_questions = len(preguntas)
                     completed_questions = sum(snapshot_completion)
-                    progress_fraction = completed_questions / total_questions if total_questions else 1.0
-                    st.progress(progress_fraction)
-                    st.caption(
-                        f"Avance del nivel: {completed_questions}/{total_questions} preguntas completadas"
+                    progress_fraction = (
+                        completed_questions / total_questions if total_questions else 1.0
                     )
 
-                    for idx, pregunta in enumerate(preguntas, start=1):
-                        pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
-                        evidencia_pregunta_key = f"evid_{dimension}_{level_id}_{idx}"
-                        respuesta_actual = st.session_state.get(pregunta_key, "FALSO")
-                        evidencia_actual = st.session_state.get(evidencia_pregunta_key, "")
-                        requiere_evidencia = respuesta_actual == "VERDADERO"
-                        evidencia_valida = _is_evidence_valid(evidencia_actual)
-                        bloque_clases = ["question-block"]
-                        if respuesta_actual == "VERDADERO" and evidencia_valida:
-                            bloque_clases.append("question-block--true")
-                        elif respuesta_actual == "FALSO":
-                            bloque_clases.append("question-block--false")
-                        else:
-                            bloque_clases.append("question-block--pending")
-                        if locked:
-                            bloque_clases.append("question-block--locked")
+                    selector_key = f"selector_{dimension}_{level_id}"
+                    if selector_key not in st.session_state:
+                        st.session_state[selector_key] = 0
+                    nav_options = list(range(total_questions))
 
-                        with question_tabs[idx - 1]:
-                            st.markdown(
-                                f"<div class='{' '.join(bloque_clases)}'>",
-                                unsafe_allow_html=True,
-                            )
-                            prev_complete = all(snapshot_completion[: idx - 1])
-                            if idx > 1 and not prev_complete:
-                                st.info("Completa la pregunta anterior para continuar.")
+                    def _format_option(idx_option: int) -> str:
+                        suffix = " ✓" if snapshot_completion[idx_option] else ""
+                        return f"Pregunta {idx_option + 1}{suffix}"
 
-                            cabecera_col, opciones_col = st.columns([7, 3])
-                            with cabecera_col:
-                                pregunta_html = escape(pregunta).replace("\n", "<br>")
-                                chip_text = "VERDADERO" if respuesta_actual == "VERDADERO" else "FALSO"
-                                chip_class = (
-                                    "question-block__chip question-block__chip--true"
-                                    if respuesta_actual == "VERDADERO"
-                                    else "question-block__chip question-block__chip--false"
-                                )
-                                st.markdown(
-                                    (
-                                        "<div class='question-block__header'>"
-                                        f"<div class='question-block__badge'>{idx}</div>"
-                                        "<div class='question-block__body'>"
-                                        f"<div class='question-block__text'>{pregunta_html}</div>"
-                                        f"<div class='{chip_class}'>{chip_text}</div>"
-                                        "</div>"
-                                        "</div>"
-                                    ),
-                                    unsafe_allow_html=True,
-                                )
-                            with opciones_col:
-                                st.radio(
-                                    "Selecciona una opción",
-                                    options=["VERDADERO", "FALSO"],
-                                    key=pregunta_key,
-                                    horizontal=True,
-                                    label_visibility="collapsed",
-                                    disabled=locked or (idx > 1 and not prev_complete),
-                                )
+                    selected_idx = st.radio(
+                        "Selecciona una pregunta",
+                        options=nav_options,
+                        format_func=_format_option,
+                        horizontal=True,
+                        key=selector_key,
+                        label_visibility="collapsed",
+                    )
+                    active_idx = int(selected_idx)
+                    st.session_state[selector_key] = active_idx
+                    prev_complete = all(snapshot_completion[:active_idx])
 
-                            evidencia_texto = st.text_area(
-                                "Antecedentes de verificación",
-                                key=evidencia_pregunta_key,
-                                placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
-                                height=100,
-                                max_chars=STEP_CONFIG["max_char_limit"],
-                                disabled=locked or not requiere_evidencia or (idx > 1 and not prev_complete),
-                            )
-                            if requiere_evidencia:
-                                contador = len(_clean_text(evidencia_texto))
-                                contador_html = (
-                                    f"<div class='question-block__counter{' question-block__counter--alert' if contador > STEP_CONFIG['soft_char_limit'] else ''}'>"
-                                    f"{contador}/{STEP_CONFIG['soft_char_limit']}"
-                                    "</div>"
-                                )
-                                st.markdown(contador_html, unsafe_allow_html=True)
-                            else:
-                                st.caption("Disponible solo si seleccionas VERDADERO.")
+                    st.progress(progress_fraction)
+                    st.caption(f"{completed_questions}/{total_questions} preguntas completadas")
 
-                            if (
-                                requiere_evidencia
-                                and not _is_evidence_valid(st.session_state.get(evidencia_pregunta_key))
-                            ):
-                                st.markdown(
-                                    "<div class='question-block__error'>Escribe los antecedentes de verificación para guardar como VERDADERO.</div>",
-                                    unsafe_allow_html=True,
-                                )
+                    pregunta = preguntas[active_idx]
+                    pregunta_key = f"resp_{dimension}_{level_id}_{active_idx + 1}"
+                    evidencia_pregunta_key = f"evid_{dimension}_{level_id}_{active_idx + 1}"
+                    respuesta_actual = st.session_state.get(pregunta_key, "FALSO")
+                    evidencia_actual = st.session_state.get(evidencia_pregunta_key, "")
+                    requiere_evidencia = respuesta_actual == "VERDADERO"
+                    evidencia_valida = _is_evidence_valid(evidencia_actual)
+                    bloque_clases = ["question-block"]
+                    if respuesta_actual == "VERDADERO" and evidencia_valida:
+                        bloque_clases.append("question-block--true")
+                    elif respuesta_actual == "FALSO":
+                        bloque_clases.append("question-block--false")
+                    else:
+                        bloque_clases.append("question-block--pending")
+                    if locked:
+                        bloque_clases.append("question-block--locked")
 
-                            st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='{' '.join(bloque_clases)}'>",
+                        unsafe_allow_html=True,
+                    )
+                    if active_idx > 0 and not prev_complete:
+                        st.caption(":lock: Completa la pregunta anterior para habilitar esta sección.")
+
+                    cabecera_col, opciones_col = st.columns([7, 3])
+                    with cabecera_col:
+                        pregunta_html = escape(pregunta).replace("\n", "<br>")
+                        chip_text = "VERDADERO" if respuesta_actual == "VERDADERO" else "FALSO"
+                        chip_class = (
+                            "question-block__chip question-block__chip--true"
+                            if respuesta_actual == "VERDADERO"
+                            else "question-block__chip question-block__chip--false"
+                        )
+                        st.markdown(
+                            (
+                                "<div class='question-block__header'>"
+                                f"<div class='question-block__badge'>{active_idx + 1}</div>"
+                                "<div class='question-block__body'>"
+                                f"<div class='question-block__text'>{pregunta_html}</div>"
+                                f"<div class='{chip_class}'>{chip_text}</div>"
+                                "</div>"
+                                "</div>"
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                    with opciones_col:
+                        st.radio(
+                            "Selecciona una opción",
+                            options=["VERDADERO", "FALSO"],
+                            key=pregunta_key,
+                            horizontal=True,
+                            label_visibility="collapsed",
+                            disabled=locked or (active_idx > 0 and not prev_complete),
+                        )
+
+                    evidencia_texto = st.text_area(
+                        "Antecedentes de verificación",
+                        key=evidencia_pregunta_key,
+                        placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
+                        height=90,
+                        max_chars=STEP_CONFIG["max_char_limit"],
+                        disabled=locked or not requiere_evidencia or (active_idx > 0 and not prev_complete),
+                    )
+                    if requiere_evidencia:
+                        contador = len(_clean_text(evidencia_texto))
+                        contador_html = (
+                            f"<div class='question-block__counter{' question-block__counter--alert' if contador > STEP_CONFIG['soft_char_limit'] else ''}'>"
+                            f"{contador}/{STEP_CONFIG['soft_char_limit']}"
+                            "</div>"
+                        )
+                        st.markdown(contador_html, unsafe_allow_html=True)
+                    else:
+                        st.caption(":lock: Disponible solo si seleccionas VERDADERO.")
+
+                    if (
+                        requiere_evidencia
+                        and not _is_evidence_valid(st.session_state.get(evidencia_pregunta_key))
+                    ):
+                        st.markdown(
+                            "<div class='question-block__error'>Escribe los antecedentes de verificación para guardar como VERDADERO.</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.radio(
                         "Responder",
@@ -1889,19 +1908,19 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card__intro {
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     color: var(--text-600);
-    margin-bottom: 1rem;
-    line-height: 1.55;
+    margin-bottom: 0.75rem;
+    line-height: 1.45;
 }
 
 .question-block {
-    border: 1px solid rgba(var(--shadow-color), 0.18);
-    border-radius: 14px;
-    padding: 0.6rem 0.8rem 0.5rem;
-    margin-bottom: 0.35rem;
-    background: rgba(255, 255, 255, 0.92);
-    box-shadow: 0 6px 16px rgba(var(--shadow-color), 0.12);
+    border: 1px solid rgba(var(--shadow-color), 0.14);
+    border-radius: 10px;
+    padding: 0.45rem 0.6rem 0.4rem;
+    margin-bottom: 0.2rem;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 4px 10px rgba(var(--shadow-color), 0.08);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -1934,9 +1953,9 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 
 .question-block__header {
     display: flex;
-    gap: 0.85rem;
+    gap: 0.6rem;
     align-items: flex-start;
-    font-size: 1rem;
+    font-size: 0.92rem;
     font-weight: 600;
     color: var(--text-700);
 }
@@ -1950,8 +1969,8 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block__badge {
-    min-width: 2.2rem;
-    height: 2.2rem;
+    min-width: 1.8rem;
+    height: 1.8rem;
     border-radius: 999px;
     background: linear-gradient(140deg, rgba(31, 132, 92, 0.95), rgba(17, 91, 63, 0.92));
     color: #f2fff8;
@@ -1959,18 +1978,18 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 0.82rem;
 }
 
 .question-block__text {
     flex: 1;
-    line-height: 1.45;
+    line-height: 1.35;
 }
 
 .question-block__chip {
     border-radius: 999px;
-    padding: 0.15rem 0.85rem;
-    font-size: 0.8rem;
+    padding: 0.12rem 0.6rem;
+    font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -1990,8 +2009,8 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 
 .question-block__counter {
     text-align: right;
-    margin-top: 0.35rem;
-    font-size: 0.8rem;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
     color: rgba(var(--shadow-color), 0.65);
 }
 
@@ -2050,8 +2069,8 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block__error {
-    margin-top: 0.45rem;
-    font-size: 0.82rem;
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
     color: rgba(171, 44, 38, 0.98);
     font-weight: 600;
 }
