@@ -915,7 +915,7 @@ def _handle_level_submission(
     if preguntas:
         faltantes = _missing_required_evidences(level_data, normalizado, evidencias_normalizadas)
         if faltantes:
-            mensaje = "Escribe el medio de verificación para guardar como VERDADERO."
+            mensaje = "Escribe los antecedentes de verificación para guardar como VERDADERO."
             _set_level_state(dimension, level_id, estado_auto="Pendiente", en_calculo=False)
             return False, mensaje, None
         respuesta = _aggregate_question_status(normalizado) or "FALSO"
@@ -932,7 +932,7 @@ def _handle_level_submission(
             return False, mensaje, None
         respuesta = respuesta_manual
         if respuesta == "VERDADERO" and not evidencia:
-            mensaje = "Escribe el medio de verificación para guardar como VERDADERO."
+            mensaje = "Escribe los antecedentes de verificación para guardar como VERDADERO."
             _set_level_state(dimension, level_id, estado_auto="Pendiente", en_calculo=False)
             return False, mensaje, None
 
@@ -1047,10 +1047,10 @@ def _render_dimension_tab(dimension: str) -> None:
                         requiere_evidencia = respuesta_actual == "VERDADERO"
                         evidencia_valida = _is_evidence_valid(evidencia_actual)
                         bloque_clases = ["question-block"]
-                        if respuesta_actual in {"VERDADERO", "FALSO"} and (
-                            not requiere_evidencia or evidencia_valida
-                        ):
-                            bloque_clases.append("question-block--complete")
+                        if respuesta_actual == "VERDADERO" and evidencia_valida:
+                            bloque_clases.append("question-block--true")
+                        elif respuesta_actual == "FALSO":
+                            bloque_clases.append("question-block--false")
                         else:
                             bloque_clases.append("question-block--pending")
                         if locked:
@@ -1095,10 +1095,10 @@ def _render_dimension_tab(dimension: str) -> None:
                         evidencia_texto = ""
                         if requiere_evidencia:
                             evidencia_texto = st.text_area(
-                                "Medio de verificación (texto)",
+                                "Antecedentes de verificación",
                                 value=st.session_state[evidencia_pregunta_key],
                                 key=evidencia_pregunta_key,
-                                placeholder="Describe brevemente la evidencia que respalda esta afirmación…",
+                                placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
                                 height=100,
                                 max_chars=STEP_CONFIG["max_char_limit"],
                             )
@@ -1114,7 +1114,7 @@ def _render_dimension_tab(dimension: str) -> None:
 
                         if requiere_evidencia and not _is_evidence_valid(st.session_state[evidencia_pregunta_key]):
                             st.markdown(
-                                "<div class='question-block__error'>Escribe el medio de verificación para guardar como VERDADERO.</div>",
+                                "<div class='question-block__error'>Escribe los antecedentes de verificación para guardar como VERDADERO.</div>",
                                 unsafe_allow_html=True,
                             )
 
@@ -1142,10 +1142,10 @@ def _render_dimension_tab(dimension: str) -> None:
                     respuesta_manual_actual = st.session_state.get(answer_key, "FALSO")
                     if respuesta_manual_actual == "VERDADERO":
                         evidencia_texto = st.text_area(
-                            "Medio de verificación (texto)",
+                            "Antecedentes de verificación",
                             value=st.session_state[evidencia_key],
                             key=evidencia_key,
-                            placeholder="Describe brevemente la evidencia que respalda esta afirmación…",
+                            placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
                             height=110,
                             max_chars=STEP_CONFIG["max_char_limit"],
                         )
@@ -1348,7 +1348,7 @@ def _collect_dimension_details() -> dict[str, dict[str, Any]]:
                             "Respuesta": _format_answer_display(
                                 respuestas.get(idx_str), state
                             ),
-                            "Medio de verificación": evidencias_preguntas.get(idx_str) or "—",
+                            "Antecedentes de verificación": evidencias_preguntas.get(idx_str) or "—",
                             "Estado del nivel": estado_nivel,
                         }
                     )
@@ -1359,7 +1359,7 @@ def _collect_dimension_details() -> dict[str, dict[str, Any]]:
                         "Descripción del nivel": level.get("descripcion", ""),
                         "Pregunta": "—",
                         "Respuesta": _format_answer_display(state.get("respuesta"), state),
-                        "Medio de verificación": state.get("evidencia") or "—",
+                        "Antecedentes de verificación": state.get("evidencia") or "—",
                         "Estado del nivel": estado_nivel,
                     }
                 )
@@ -1758,9 +1758,9 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card--answered {
-    border-color: #0b7a4b;
-    box-shadow: 0 30px 52px rgba(11, 122, 75, 0.32);
-    background: linear-gradient(140deg, rgba(9, 94, 60, 0.26), rgba(2, 53, 32, 0.22));
+    border-color: rgba(30, 78, 155, 0.82);
+    box-shadow: 0 30px 52px rgba(25, 70, 146, 0.32);
+    background: linear-gradient(140deg, rgba(56, 116, 209, 0.24), rgba(23, 63, 138, 0.22));
     position: relative;
 }
 
@@ -1769,7 +1769,7 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     position: absolute;
     inset: 0;
     border-radius: 20px;
-    background: radial-gradient(circle at top right, rgba(41, 180, 120, 0.24), transparent 55%);
+    background: radial-gradient(circle at top right, rgba(120, 165, 230, 0.32), transparent 55%);
     pointer-events: none;
 }
 
@@ -1802,20 +1802,21 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card--complete {
-    border-color: rgba(34, 141, 96, 0.7);
+    border-color: rgba(30, 78, 155, 0.7);
 }
 
 .level-card--complete > div[data-testid="stExpander"] > details > summary {
-    color: #0f3d28;
+    color: #10315e;
 }
 
 .level-card--answered > div[data-testid="stExpander"] > details > summary {
-    color: #e9fff4;
-    text-shadow: 0 1px 1px rgba(4, 42, 27, 0.4);
+    color: #f4f8ff;
+    text-shadow: 0 1px 1px rgba(9, 33, 87, 0.45);
 }
 
 .level-card--pending {
-    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(206, 84, 84, 0.55);
+    background: linear-gradient(150deg, rgba(227, 110, 110, 0.12), rgba(206, 84, 84, 0.08));
 }
 
 .level-card--attention {
@@ -1851,13 +1852,19 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.question-block--complete {
-    border-color: rgba(17, 131, 84, 0.85);
-    background: linear-gradient(135deg, rgba(11, 113, 72, 0.12), rgba(7, 74, 48, 0.12));
+.question-block--true {
+    border-color: rgba(30, 78, 155, 0.78);
+    background: linear-gradient(135deg, rgba(56, 116, 209, 0.12), rgba(23, 63, 138, 0.12));
 }
 
 .question-block--pending {
-    border-color: rgba(var(--shadow-color), 0.16);
+    border-color: rgba(206, 84, 84, 0.65);
+    background: linear-gradient(135deg, rgba(227, 110, 110, 0.12), rgba(206, 84, 84, 0.1));
+}
+
+.question-block--false {
+    border-color: rgba(206, 84, 84, 0.55);
+    background: linear-gradient(135deg, rgba(227, 110, 110, 0.18), rgba(206, 84, 84, 0.12));
 }
 
 .question-block--locked {
@@ -1917,15 +1924,15 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .question-block__chip--true {
-    background: rgba(21, 128, 81, 0.15);
-    color: rgba(16, 83, 52, 0.95);
-    border: 1px solid rgba(21, 128, 81, 0.55);
+    background: rgba(56, 116, 209, 0.18);
+    color: rgba(23, 63, 138, 0.95);
+    border: 1px solid rgba(56, 116, 209, 0.45);
 }
 
 .question-block__chip--false {
-    background: rgba(116, 118, 119, 0.18);
-    color: rgba(70, 73, 75, 0.9);
-    border: 1px solid rgba(126, 128, 129, 0.45);
+    background: rgba(227, 110, 110, 0.18);
+    color: rgba(144, 41, 41, 0.95);
+    border: 1px solid rgba(206, 84, 84, 0.45);
 }
 
 .question-block__counter {
