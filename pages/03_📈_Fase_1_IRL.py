@@ -1420,79 +1420,129 @@ def _render_dimension_tab(dimension: str) -> None:
 
                     st.markdown("</div>", unsafe_allow_html=True)
 
-                    if locked:
-                        avanzar_disabled = active_idx >= total_questions - 1
-                        avanzar_label = "Siguiente" if active_idx < total_questions - 1 else "Fin"
-                    else:
-                        avanzar_disabled = active_idx > 0 and not snapshot_completion[active_idx - 1]
-                        avanzar_label = (
-                            "Guardar y continuar con el siguiente nivel"
-                            if active_idx == total_questions - 1
-                            else "Guardar y avanzar"
-                        )
-                    st.markdown(
-                        "<div class='question-action question-action--next question-action--single'>",
-                        unsafe_allow_html=True,
-                    )
-                    btn_avanzar = st.button(
-                        avanzar_label,
-                        key=f"btn_step_save_{dimension}_{level_id}_{active_idx}",
-                        disabled=avanzar_disabled,
-                        use_container_width=True,
-                    )
-                    st.markdown("</div>", unsafe_allow_html=True)
-
                     question_error_key = f"question_error_{dimension}_{level_id}"
 
-                    if btn_avanzar:
-                        if locked:
-                            if active_idx < total_questions - 1:
-                                siguiente_idx = active_idx + 1
-                                _set_active_question(
-                                    dimension,
-                                    level_id,
-                                    siguiente_idx,
-                                    total_questions,
-                                )
-                                st.session_state[selector_key] = siguiente_idx
-                                st.session_state[question_error_key] = None
-                                _rerun_app()
-                        else:
-                            error_msg = None
-                            if respuesta_actual not in {"VERDADERO", "FALSO"}:
-                                error_msg = "Selecciona una opción antes de avanzar."
-                            elif respuesta_actual == "VERDADERO" and not evidencia_valida:
-                                error_msg = "Escribe los antecedentes de verificación para guardar como VERDADERO."
-                            if error_msg:
-                                st.session_state[question_error_key] = error_msg
-                            else:
-                                _persist_question_progress(
-                                    dimension,
-                                    level_id,
-                                    active_idx + 1,
-                                    respuesta_actual,
-                                    evidencia_texto if respuesta_actual == "VERDADERO" else "",
-                                )
-                                _mark_question_saved(
-                                    dimension,
-                                    level_id,
-                                    active_idx + 1,
-                                    total_questions,
-                                )
-                                st.session_state[question_error_key] = None
-                                if active_idx < total_questions - 1:
-                                    siguiente_idx = active_idx + 1
-                                else:
-                                    siguiente_idx = active_idx
-                                    st.session_state[_AUTO_SAVE_KEY] = (dimension, level_id)
-                                _set_active_question(
-                                    dimension,
-                                    level_id,
-                                    siguiente_idx,
-                                    total_questions,
-                                )
-                                st.session_state[selector_key] = siguiente_idx
-                                _rerun_app()
+                    def _store_current_question() -> bool:
+                        current_answer = st.session_state.get(pregunta_key)
+                        evidence_value = st.session_state.get(
+                            evidencia_pregunta_key, ""
+                        )
+                        evidence_valid = _is_evidence_valid(evidence_value)
+                        if current_answer not in {"VERDADERO", "FALSO"}:
+                            st.session_state[question_error_key] = (
+                                "Selecciona una opción antes de continuar."
+                            )
+                            return False
+                        if current_answer == "VERDADERO" and not evidence_valid:
+                            st.session_state[question_error_key] = (
+                                "Escribe los antecedentes de verificación para guardar como VERDADERO."
+                            )
+                            return False
+                        _persist_question_progress(
+                            dimension,
+                            level_id,
+                            active_idx + 1,
+                            current_answer,
+                            evidence_value if current_answer == "VERDADERO" else "",
+                        )
+                        _mark_question_saved(
+                            dimension,
+                            level_id,
+                            active_idx + 1,
+                            total_questions,
+                        )
+                        st.session_state[question_error_key] = None
+                        return True
+
+                    last_question = active_idx == total_questions - 1
+                    guardar_disabled = (
+                        locked
+                        or not last_question
+                        or not all(snapshot_completion[:-1])
+                    )
+                    anterior_disabled = active_idx <= 0
+                    siguiente_disabled = active_idx >= total_questions - 1
+                    if not locked and active_idx > 0 and not prev_saved:
+                        siguiente_disabled = True
+
+                    st.markdown(
+                        "<div class='question-actions'>",
+                        unsafe_allow_html=True,
+                    )
+                    col_guardar, col_anterior, col_siguiente = st.columns(3)
+                    with col_guardar:
+                        st.markdown(
+                            "<div class='question-action question-action--save'>",
+                            unsafe_allow_html=True,
+                        )
+                        btn_guardar = st.button(
+                            "Guardar",
+                            key=f"btn_step_finalize_{dimension}_{level_id}_{active_idx}",
+                            disabled=guardar_disabled,
+                            use_container_width=True,
+                        )
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    with col_anterior:
+                        st.markdown(
+                            "<div class='question-action question-action--prev'>",
+                            unsafe_allow_html=True,
+                        )
+                        btn_anterior = st.button(
+                            "Anterior",
+                            key=f"btn_step_prev_{dimension}_{level_id}_{active_idx}",
+                            disabled=anterior_disabled,
+                            use_container_width=True,
+                        )
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    with col_siguiente:
+                        st.markdown(
+                            "<div class='question-action question-action--next'>",
+                            unsafe_allow_html=True,
+                        )
+                        btn_siguiente = st.button(
+                            "Siguiente",
+                            key=f"btn_step_next_{dimension}_{level_id}_{active_idx}",
+                            disabled=siguiente_disabled,
+                            use_container_width=True,
+                        )
+                        st.markdown("</div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+                    if btn_anterior and active_idx > 0:
+                        anterior_idx = active_idx - 1
+                        _set_active_question(
+                            dimension,
+                            level_id,
+                            anterior_idx,
+                            total_questions,
+                        )
+                        st.session_state[selector_key] = anterior_idx
+                        st.session_state[question_error_key] = None
+                        _rerun_app()
+
+                    if btn_siguiente and active_idx < total_questions - 1:
+                        if locked or _store_current_question():
+                            siguiente_idx = active_idx + 1
+                            _set_active_question(
+                                dimension,
+                                level_id,
+                                siguiente_idx,
+                                total_questions,
+                            )
+                            st.session_state[selector_key] = siguiente_idx
+                            _rerun_app()
+
+                    if btn_guardar and not guardar_disabled:
+                        if not locked and _store_current_question():
+                            st.session_state[_AUTO_SAVE_KEY] = (dimension, level_id)
+                            _set_active_question(
+                                dimension,
+                                level_id,
+                                active_idx,
+                                total_questions,
+                            )
+                            st.session_state[selector_key] = active_idx
+                            _rerun_app()
 
                     if st.session_state.get(question_error_key):
                         st.error(st.session_state[question_error_key])
@@ -2473,6 +2523,19 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     background: linear-gradient(135deg, rgba(21, 118, 78, 0.26), rgba(12, 74, 50, 0.22));
 }
 
+.question-actions {
+    margin-top: 0.6rem;
+}
+
+.question-actions > div[data-testid="column"] {
+    display: flex;
+    flex-direction: column;
+}
+
+.question-actions > div[data-testid="column"] > div {
+    width: 100%;
+}
+
 .question-action {
     width: 100%;
 }
@@ -2484,22 +2547,42 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-.question-action--next > div[data-testid="stButton"] > button {
+.question-action--next > div[data-testid="stButton"] > button,
+.question-action--save > div[data-testid="stButton"] > button {
     background: linear-gradient(135deg, #1e9d6c, #15754e);
     color: #ffffff;
     border: 1px solid rgba(17, 94, 63, 0.85);
     box-shadow: 0 12px 22px rgba(21, 117, 78, 0.24);
 }
 
-.question-action--next > div[data-testid="stButton"] > button:hover:enabled {
+.question-action--next > div[data-testid="stButton"] > button:hover:enabled,
+.question-action--save > div[data-testid="stButton"] > button:hover:enabled {
     background: linear-gradient(135deg, #25b27c, #1b8a5d);
     box-shadow: 0 16px 28px rgba(21, 117, 78, 0.28);
     transform: translateY(-1px);
 }
 
-.question-action--next > div[data-testid="stButton"] > button:disabled {
+.question-action--next > div[data-testid="stButton"] > button:disabled,
+.question-action--save > div[data-testid="stButton"] > button:disabled {
     opacity: 0.6;
     box-shadow: none;
+    cursor: not-allowed;
+}
+
+.question-action--prev > div[data-testid="stButton"] > button {
+    background: rgba(31, 55, 91, 0.08);
+    color: rgba(28, 53, 88, 0.85);
+    border: 1px solid rgba(28, 53, 88, 0.14);
+    box-shadow: none;
+}
+
+.question-action--prev > div[data-testid="stButton"] > button:hover:enabled {
+    background: rgba(31, 55, 91, 0.12);
+    color: rgba(28, 53, 88, 0.95);
+}
+
+.question-action--prev > div[data-testid="stButton"] > button:disabled {
+    opacity: 0.55;
     cursor: not-allowed;
 }
 
