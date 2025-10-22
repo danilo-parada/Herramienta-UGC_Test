@@ -2238,19 +2238,9 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card--answered {
-    border-color: rgba(30, 78, 155, 0.82);
-    box-shadow: 0 30px 52px rgba(25, 70, 146, 0.32);
-    background: linear-gradient(140deg, rgba(56, 116, 209, 0.24), rgba(23, 63, 138, 0.22));
-    position: relative;
-}
-
-.level-card--answered::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 20px;
-    background: radial-gradient(circle at top right, rgba(120, 165, 230, 0.32), transparent 55%);
-    pointer-events: none;
+    border-color: rgba(18, 94, 59, 0.88);
+    box-shadow: 0 18px 32px rgba(17, 76, 50, 0.26);
+    background: linear-gradient(140deg, rgba(26, 122, 78, 0.25), rgba(18, 94, 59, 0.3));
 }
 
 .level-card--editing {
@@ -2266,10 +2256,6 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
     background: linear-gradient(135deg, rgba(228, 232, 238, 0.94), rgba(212, 217, 226, 0.98));
     border-color: rgba(135, 145, 163, 0.68);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 14px 30px rgba(64, 74, 92, 0.14);
-}
-
-.level-card--locked.level-card--answered::before {
-    display: none;
 }
 
 .level-card--locked > div[data-testid="stExpander"] > details > summary {
