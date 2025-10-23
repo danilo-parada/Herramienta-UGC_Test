@@ -392,8 +392,27 @@ def _note_value(question: Question) -> str:
     return str(value or "").strip()
 
 
+def _answer_value(question: Question) -> str | None:
+    """Return the textual answer for ``question`` when available."""
+
+    if not question.answer_key:
+        return None
+    answer = st.session_state.get(question.answer_key)
+    if answer in {"VERDADERO", "FALSO"}:
+        return str(answer)
+    return None
+
+
 def question_valid(question: Question) -> bool:
     """Return ``True`` if the current answer satisfies the validation rules."""
+
+    textual_answer = _answer_value(question)
+    if textual_answer == "FALSO":
+        return True
+    if textual_answer == "VERDADERO":
+        if not question.require_note_when_true:
+            return True
+        return bool(_note_value(question))
 
     selected = bool(st.session_state.get(question.value_key))
     if not selected:
@@ -621,9 +640,13 @@ def serialize_answers(questions: Iterable[Question]) -> dict[str, str | None]:
 
     respuestas: dict[str, str | None] = {}
     for question in questions:
-        respuestas[str(question.idx)] = (
-            "VERDADERO" if st.session_state.get(question.value_key) else "FALSO"
-        )
+        answer = _answer_value(question)
+        if answer in {"VERDADERO", "FALSO"}:
+            respuestas[str(question.idx)] = answer
+        else:
+            respuestas[str(question.idx)] = (
+                "VERDADERO" if st.session_state.get(question.value_key) else "FALSO"
+            )
     return respuestas
 
 
@@ -632,5 +655,13 @@ def serialize_evidences(questions: Iterable[Question]) -> dict[str, str]:
 
     evidencias: dict[str, str] = {}
     for question in questions:
-        evidencias[str(question.idx)] = _note_value(question) if st.session_state.get(question.value_key) else ""
+        answer = _answer_value(question)
+        if answer == "VERDADERO":
+            evidencias[str(question.idx)] = _note_value(question)
+        elif answer == "FALSO":
+            evidencias[str(question.idx)] = ""
+        else:
+            evidencias[str(question.idx)] = (
+                _note_value(question) if st.session_state.get(question.value_key) else ""
+            )
     return evidencias
