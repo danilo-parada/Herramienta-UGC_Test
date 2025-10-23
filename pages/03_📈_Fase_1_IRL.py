@@ -1200,6 +1200,7 @@ def _render_level_question_flow(
     irl_level_flow.inject_css()
 
     level_state = _level_state(dimension, level_id)
+    is_saved = bool(level_state.get("en_calculo"))
     existing_answers = level_state.get("respuestas_preguntas") or {}
     existing_evidences = level_state.get("evidencias_preguntas") or {}
 
@@ -1252,6 +1253,7 @@ def _render_level_question_flow(
         descripcion,
     )
 
+    current_question: irl_level_flow.Question | None = None
     if total_questions:
         current_question = questions[current_idx]
         current_valid = irl_level_flow.render_question(
@@ -1262,6 +1264,42 @@ def _render_level_question_flow(
         )
     else:
         current_valid = True
+
+    def _snapshot_current_question() -> None:
+        if not current_question:
+            return
+        answer = st.session_state.get(current_question.answer_key)
+        if answer not in {"VERDADERO", "FALSO"}:
+            answer = (
+                "VERDADERO"
+                if st.session_state.get(current_question.value_key)
+                else "FALSO"
+            )
+        evidence_value = st.session_state.get(current_question.note_key, "")
+        if not isinstance(evidence_value, str):
+            evidence_value = "" if evidence_value is None else str(evidence_value)
+        if current_valid and not is_saved:
+            _persist_question_progress(
+                dimension,
+                level_id,
+                current_question.idx,
+                answer,
+                evidence_value,
+            )
+        if current_valid:
+            _mark_question_saved(
+                dimension,
+                level_id,
+                current_question.idx,
+                total_questions,
+            )
+        else:
+            _mark_question_pending(
+                dimension,
+                level_id,
+                current_question.idx,
+                total_questions,
+            )
 
     nav = irl_level_flow.render_nav(
         total_questions,
@@ -1278,9 +1316,11 @@ def _render_level_question_flow(
 
     rerun_needed = False
     if nav.previous:
+        _snapshot_current_question()
         irl_level_flow.step(-1, total_questions, cursor_key=cursor_key)
         rerun_needed = True
     if nav.next:
+        _snapshot_current_question()
         irl_level_flow.step(1, total_questions, cursor_key=cursor_key)
         rerun_needed = True
     if rerun_needed:
