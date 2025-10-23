@@ -18,7 +18,7 @@ def _rerun_app() -> None:
     else:  # pragma: no cover - fallback for older Streamlit versions
         st.experimental_rerun()
 
-from core import db, utils, trl
+from core import db, utils, trl, irl_level_flow
 from core.data_table import render_table
 from core.db_trl import save_trl_result, get_trl_history
 from core.theme import load_theme
@@ -1148,6 +1148,104 @@ def _handle_level_submission(
     return True, None, None
 
 
+def _render_level_question_flow(
+    dimension: str,
+    level_id: int,
+    preguntas: list[str],
+    descripcion: str,
+    *,
+    locked: bool,
+) -> tuple[dict[str, str | None], dict[str, str], str, bool, bool]:
+    """Render the question flow for a level using the shared helpers."""
+
+    irl_level_flow.inject_css()
+
+    level_state = _level_state(dimension, level_id)
+    existing_answers = level_state.get("respuestas_preguntas") or {}
+    existing_evidences = level_state.get("evidencias_preguntas") or {}
+
+    questions: list[irl_level_flow.Question] = []
+    for idx, pregunta in enumerate(preguntas, start=1):
+        answer_key = f"resp_{dimension}_{level_id}_{idx}"
+        value_key = f"toggle_{dimension}_{level_id}_{idx}"
+        note_key = f"evid_{dimension}_{level_id}_{idx}"
+        idx_str = str(idx)
+
+        if answer_key not in st.session_state:
+            default_option = existing_answers.get(idx_str)
+            st.session_state[answer_key] = (
+                default_option if default_option in {"VERDADERO", "FALSO"} else "FALSO"
+            )
+
+        if note_key not in st.session_state:
+            st.session_state[note_key] = existing_evidences.get(idx_str, "") or ""
+
+        questions.append(
+            irl_level_flow.Question(
+                idx=idx,
+                text=pregunta,
+                value_key=value_key,
+                note_key=note_key,
+                answer_key=answer_key,
+            )
+        )
+
+    cursor_key = f"{irl_level_flow.STATE_PREFIX}{dimension}_{level_id}_current_idx"
+    current_idx = irl_level_flow.init_state(questions, cursor_key=cursor_key)
+    total_questions = len(questions)
+    level_done = irl_level_flow.level_completed(questions)
+    prefix = f"{irl_level_flow.STATE_PREFIX}{dimension}_{level_id}"
+
+    st.markdown(
+        f"<div class='{irl_level_flow.CSS_SCOPE_CLASS}'>",
+        unsafe_allow_html=True,
+    )
+
+    irl_level_flow.render_level_header(
+        f"Nivel {level_id}",
+        level_done,
+        descripcion,
+    )
+
+    if total_questions:
+        current_question = questions[current_idx]
+        current_valid = irl_level_flow.render_question(
+            current_question,
+            position=current_idx,
+            total=total_questions,
+            disabled=locked,
+        )
+    else:
+        current_valid = True
+
+    nav = irl_level_flow.render_nav(
+        total_questions,
+        current_idx,
+        can_save=level_done,
+        current_valid=current_valid,
+        prefix=prefix,
+        disabled=locked,
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if nav.previous:
+        irl_level_flow.step(-1, total_questions, cursor_key=cursor_key)
+    if nav.next:
+        irl_level_flow.step(1, total_questions, cursor_key=cursor_key)
+
+    respuestas_dict = irl_level_flow.serialize_answers(questions)
+    evidencias_dict = irl_level_flow.serialize_evidences(questions)
+    evidencia_texto = " \n".join(
+        texto for texto in evidencias_dict.values() if texto
+    )
+    ready_to_save = level_done
+
+    st.session_state[_READY_KEY][dimension][level_id] = ready_to_save
+
+    return respuestas_dict, evidencias_dict, evidencia_texto, ready_to_save, nav.save
+
+
 def _render_dimension_tab(dimension: str) -> None:
     _init_irl_state()
     levels = LEVEL_DEFINITIONS.get(dimension, [])
@@ -1211,488 +1309,106 @@ def _render_dimension_tab(dimension: str) -> None:
             preguntas = level.get("preguntas") or []
             answer_key = f"resp_{dimension}_{level_id}"
             evidencia_key = f"evid_{dimension}_{level_id}"
-            evidencias_preguntas_state = state.get("evidencias_preguntas") or {}
             if evidencia_key not in st.session_state:
                 st.session_state[evidencia_key] = state.get("evidencia", "")
 
-            existentes = state.get("respuestas_preguntas") or {}
-            question_keys: list[tuple[str, str]] = []
-            evidencia_question_keys: list[tuple[str, str]] = []
-            for idx, _ in enumerate(preguntas, start=1):
-                idx_str = str(idx)
-                pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
-                evidencia_pregunta_key = f"evid_{dimension}_{level_id}_{idx}"
-                toggle_key = f"toggle_{dimension}_{level_id}_{idx}"
-                question_keys.append((idx_str, pregunta_key))
-                evidencia_question_keys.append((idx_str, evidencia_pregunta_key))
-                if pregunta_key not in st.session_state:
-                    default_option = existentes.get(idx_str)
-                    st.session_state[pregunta_key] = (
-                        default_option if default_option in {"VERDADERO", "FALSO"} else "FALSO"
-                    )
-                if toggle_key not in st.session_state:
-                    st.session_state[toggle_key] = st.session_state[pregunta_key] == "VERDADERO"
-                if evidencia_pregunta_key not in st.session_state:
-                    st.session_state[evidencia_pregunta_key] = evidencias_preguntas_state.get(idx_str, "")
+            respuestas_dict: dict[str, str | None] = {}
+            evidencias_dict_envio: dict[str, str] | None = None
+            evidencia_texto = st.session_state.get(evidencia_key, "")
+            respuesta_manual: str | None = None
+            ready_to_save = False
+            guardar_click = False
 
-            if not preguntas:
+            if preguntas:
+                (
+                    respuestas_dict,
+                    evidencias_dict_envio,
+                    evidencia_texto,
+                    ready_to_save,
+                    guardar_click,
+                ) = _render_level_question_flow(
+                    dimension,
+                    level_id,
+                    preguntas,
+                    level.get("descripcion", ""),
+                    locked=locked,
+                )
+            else:
                 current_answer = state.get("respuesta")
-                current_option = current_answer if current_answer in {"VERDADERO", "FALSO"} else "FALSO"
+                current_option = (
+                    current_answer if current_answer in {"VERDADERO", "FALSO"} else "FALSO"
+                )
                 if answer_key not in st.session_state:
                     st.session_state[answer_key] = current_option
 
-            respuestas_dict: dict[str, str | None] = {}
-            evidencias_dict_envio: dict[str, str] | None = None
-            respuesta_manual: str | None = None
-            normalizado_actual: dict[str, str | None] | None = None
-            ready_to_save = False
-
-            level_container = st.container()
-            with level_container:
-                st.markdown(
-                    f"<p class='level-card__intro'>{escape(level['descripcion'])}</p>",
-                    unsafe_allow_html=True,
+                st.radio(
+                    "Responder",
+                    options=["VERDADERO", "FALSO"],
+                    key=answer_key,
+                    horizontal=True,
+                    disabled=locked,
+                    on_change=_handle_manual_answer_change,
+                    kwargs={
+                        "answer_key": answer_key,
+                        "evidencia_key": evidencia_key,
+                    },
                 )
 
-                if locked:
-                    st.markdown(
-                        "<div class='level-card__lock-hint'>🔒 Nivel guardado. Pulsa <strong>Editar</strong> para modificar las respuestas.</div>",
-                        unsafe_allow_html=True,
+                respuesta_manual = st.session_state.get(answer_key)
+                evidencia_texto = st.text_area(
+                    "Antecedentes de verificación",
+                    key=evidencia_key,
+                    placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
+                    height=110,
+                    max_chars=STEP_CONFIG["max_char_limit"],
+                    disabled=locked or respuesta_manual != "VERDADERO",
+                )
+
+                if respuesta_manual == "VERDADERO":
+                    contador = len(_clean_text(evidencia_texto))
+                    contador_html = (
+                        f"<div class='stepper-form__counter{' stepper-form__counter--alert' if contador > STEP_CONFIG['soft_char_limit'] else ''}'>"
+                        f"{contador}/{STEP_CONFIG['soft_char_limit']}"
+                        "</div>"
                     )
-
-                evidencia_texto = ""
-                if preguntas:
-                    st.markdown("**Evalúa cada pregunta:**")
-
-                    total_questions = len(preguntas)
-                    progress = _ensure_question_progress(dimension, level_id, total_questions)
-                    saved_map = progress.get("saved", {})
-                    active_idx = progress.get("active", 0)
-                    if active_idx < 0 or active_idx >= total_questions:
-                        active_idx = max(0, total_questions - 1)
-                        _set_active_question(dimension, level_id, active_idx, total_questions)
-                    selector_key = f"selector_{dimension}_{level_id}"
-                    st.session_state[selector_key] = active_idx
-                    snapshot_completion: list[bool] = [
-                        bool(saved_map.get(str(idx), False)) for idx in range(1, total_questions + 1)
-                    ]
-                    completed_questions = sum(snapshot_completion)
-                    progress_fraction = (
-                        completed_questions / total_questions if total_questions else 1.0
-                    )
-                    prev_saved = all(snapshot_completion[:active_idx])
-
-                    stepper_items: list[str] = []
-                    for idx in range(total_questions):
-                        classes = ["question-stepper__item"]
-                        if snapshot_completion[idx]:
-                            classes.append("is-done")
-                        if idx == active_idx:
-                            classes.append("is-active")
-                        stepper_items.append(
-                            f"<span class='{' '.join(classes)}'>{idx + 1}</span>"
-                        )
-                    st.markdown(
-                        f"<div class='question-stepper'>{''.join(stepper_items)}</div>",
-                        unsafe_allow_html=True,
-                    )
-
-                    st.caption(f"Pregunta {active_idx + 1} de {total_questions}")
-
-                    st.progress(progress_fraction)
-                    st.caption(f"{completed_questions}/{total_questions} preguntas completadas")
-
-                    pregunta = preguntas[active_idx]
-                    pregunta_key = f"resp_{dimension}_{level_id}_{active_idx + 1}"
-                    evidencia_pregunta_key = f"evid_{dimension}_{level_id}_{active_idx + 1}"
-                    respuesta_actual = st.session_state.get(pregunta_key, "FALSO")
-                    evidencia_actual = st.session_state.get(evidencia_pregunta_key, "")
-                    requiere_evidencia = respuesta_actual == "VERDADERO"
-                    evidencia_valida = _is_evidence_valid(evidencia_actual)
-                    bloque_clases = ["question-block"]
-                    if snapshot_completion[active_idx]:
-                        if respuesta_actual == "VERDADERO" and evidencia_valida:
-                            bloque_clases.append("question-block--true")
-                        elif respuesta_actual == "FALSO":
-                            bloque_clases.append("question-block--false")
-                        else:
-                            bloque_clases.append("question-block--pending")
-                        bloque_clases.append("question-block--saved")
-                    else:
-                        bloque_clases.append("question-block--pending")
-                    if locked:
-                        bloque_clases.append("question-block--locked")
-
-                    st.markdown(
-                        f"<div class='{' '.join(bloque_clases)}'>",
-                        unsafe_allow_html=True,
-                    )
-                    if active_idx > 0 and not prev_saved:
-                        st.caption(":lock: Completa la pregunta anterior para habilitar esta sección.")
-                    if not snapshot_completion[active_idx]:
-                        st.caption(":memo: Respuesta pendiente de guardar.")
-
-                    cabecera_col, opciones_col = st.columns([7, 3])
-                    with cabecera_col:
-                        pregunta_html = escape(pregunta).replace("\n", "<br>")
-                    if respuesta_actual == "VERDADERO":
-                        chip_text = "VERDADERO"
-                        chip_class = "question-block__chip question-block__chip--true"
-                    elif respuesta_actual == "FALSO":
-                        chip_text = "FALSO"
-                        chip_class = "question-block__chip question-block__chip--false"
-                    else:
-                        chip_text = "SIN RESPUESTA"
-                        chip_class = "question-block__chip question-block__chip--pending"
-                    if not snapshot_completion[active_idx]:
-                        chip_class += " question-block__chip--draft"
-                    st.markdown(
-                        (
-                            "<div class='question-block__header'>"
-                            f"<div class='question-block__badge'>{active_idx + 1}</div>"
-                            "<div class='question-block__body'>"
-                                f"<div class='question-block__text'>{pregunta_html}</div>"
-                                f"<div class='{chip_class}'>{chip_text}</div>"
-                                "</div>"
-                                "</div>"
-                            ),
-                            unsafe_allow_html=True,
-                        )
-                    with opciones_col:
-                        toggle_key = f"toggle_{dimension}_{level_id}_{active_idx + 1}"
-                        st.session_state[toggle_key] = respuesta_actual == "VERDADERO"
-                        toggle_disabled = locked or (active_idx > 0 and not prev_saved)
-                        st.markdown("<div class='question-toggle'>", unsafe_allow_html=True)
-                        st.toggle(
-                            "Marcar como VERDADERO",
-                            key=toggle_key,
-                            value=st.session_state[toggle_key],
-                            disabled=toggle_disabled,
-                            label_visibility="collapsed",
-                            on_change=_handle_question_toggle_change,
-                            kwargs={
-                                "dimension": dimension,
-                                "level_id": level_id,
-                                "idx": active_idx + 1,
-                                "total_questions": total_questions,
-                                "pregunta_key": pregunta_key,
-                                "evidencia_key": evidencia_pregunta_key,
-                                "toggle_key": toggle_key,
-                            },
-                        )
-                        estado_actual = "VERDADERO" if st.session_state.get(toggle_key) else "FALSO"
-                        estado_clase = (
-                            "question-toggle__state question-toggle__state--true"
-                            if estado_actual == "VERDADERO"
-                            else "question-toggle__state question-toggle__state--false"
-                        )
-                        st.markdown(
-                            f"<div class='{estado_clase}'>{estado_actual}</div>",
-                            unsafe_allow_html=True,
-                        )
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-                    evidencia_texto = st.text_area(
-                        "Antecedentes de verificación",
-                        key=evidencia_pregunta_key,
-                        placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
-                        height=90,
-                        max_chars=STEP_CONFIG["max_char_limit"],
-                        disabled=locked or not requiere_evidencia or (active_idx > 0 and not prev_saved),
-                        on_change=_handle_question_evidence_change,
-                        kwargs={
-                            "dimension": dimension,
-                            "level_id": level_id,
-                            "idx": active_idx + 1,
-                            "total_questions": total_questions,
-                        },
-                    )
-                    if requiere_evidencia:
-                        contador = len(_clean_text(evidencia_texto))
-                        contador_html = (
-                            f"<div class='question-block__counter{' question-block__counter--alert' if contador > STEP_CONFIG['soft_char_limit'] else ''}'>"
-                            f"{contador}/{STEP_CONFIG['soft_char_limit']}"
-                            "</div>"
-                        )
-                        st.markdown(contador_html, unsafe_allow_html=True)
-                    else:
-                        st.caption(":lock: Disponible solo si seleccionas VERDADERO.")
-
-                    if (
-                        requiere_evidencia
-                        and not _is_evidence_valid(st.session_state.get(evidencia_pregunta_key))
-                    ):
-                        st.markdown(
-                            "<div class='question-block__error'>Escribe los antecedentes de verificación para guardar como VERDADERO.</div>",
-                            unsafe_allow_html=True,
-                        )
-
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                    question_error_key = f"question_error_{dimension}_{level_id}"
-
-                    def _store_current_question() -> bool:
-                        current_answer = st.session_state.get(pregunta_key)
-                        evidence_value = st.session_state.get(
-                            evidencia_pregunta_key, ""
-                        )
-                        evidence_valid = _is_evidence_valid(evidence_value)
-                        if current_answer not in {"VERDADERO", "FALSO"}:
-                            st.session_state[question_error_key] = (
-                                "Selecciona una opción antes de continuar."
-                            )
-                            return False
-                        if current_answer == "VERDADERO" and not evidence_valid:
-                            st.session_state[question_error_key] = (
-                                "Escribe los antecedentes de verificación para guardar como VERDADERO."
-                            )
-                            return False
-                        _persist_question_progress(
-                            dimension,
-                            level_id,
-                            active_idx + 1,
-                            current_answer,
-                            evidence_value if current_answer == "VERDADERO" else "",
-                        )
-                        _mark_question_saved(
-                            dimension,
-                            level_id,
-                            active_idx + 1,
-                            total_questions,
-                        )
-                        st.session_state[question_error_key] = None
-                        return True
-
-                    last_question = active_idx == total_questions - 1
-                    guardar_disabled = (
-                        locked
-                        or not last_question
-                        or not all(snapshot_completion[:-1])
-                    )
-                    anterior_disabled = active_idx <= 0
-                    siguiente_disabled = active_idx >= total_questions - 1
-                    if not locked and active_idx > 0 and not prev_saved:
-                        siguiente_disabled = True
-
-                    st.markdown(
-                        "<div class='question-actions'>",
-                        unsafe_allow_html=True,
-                    )
-                    col_guardar, col_anterior, col_siguiente = st.columns(3)
-                    with col_guardar:
-                        st.markdown(
-                            "<div class='question-action question-action--save'>",
-                            unsafe_allow_html=True,
-                        )
-                        btn_guardar = st.button(
-                            "Guardar",
-                            key=f"btn_step_finalize_{dimension}_{level_id}_{active_idx}",
-                            disabled=guardar_disabled,
-                            use_container_width=True,
-                        )
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    with col_anterior:
-                        st.markdown(
-                            "<div class='question-action question-action--prev'>",
-                            unsafe_allow_html=True,
-                        )
-                        btn_anterior = st.button(
-                            "Anterior",
-                            key=f"btn_step_prev_{dimension}_{level_id}_{active_idx}",
-                            disabled=anterior_disabled,
-                            use_container_width=True,
-                        )
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    with col_siguiente:
-                        st.markdown(
-                            "<div class='question-action question-action--next'>",
-                            unsafe_allow_html=True,
-                        )
-                        btn_siguiente = st.button(
-                            "Siguiente",
-                            key=f"btn_step_next_{dimension}_{level_id}_{active_idx}",
-                            disabled=siguiente_disabled,
-                            use_container_width=True,
-                        )
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                    if btn_anterior and active_idx > 0:
-                        anterior_idx = active_idx - 1
-                        _set_active_question(
-                            dimension,
-                            level_id,
-                            anterior_idx,
-                            total_questions,
-                        )
-                        st.session_state[selector_key] = anterior_idx
-                        st.session_state[question_error_key] = None
-                        _rerun_app()
-
-                    if btn_siguiente and active_idx < total_questions - 1:
-                        if locked or _store_current_question():
-                            siguiente_idx = active_idx + 1
-                            _set_active_question(
-                                dimension,
-                                level_id,
-                                siguiente_idx,
-                                total_questions,
-                            )
-                            st.session_state[selector_key] = siguiente_idx
-                            _rerun_app()
-
-                    if btn_guardar and not guardar_disabled:
-                        if not locked and _store_current_question():
-                            st.session_state[_AUTO_SAVE_KEY] = (dimension, level_id)
-                            _set_active_question(
-                                dimension,
-                                level_id,
-                                active_idx,
-                                total_questions,
-                            )
-                            st.session_state[selector_key] = active_idx
-                            _rerun_app()
-
-                    if st.session_state.get(question_error_key):
-                        st.error(st.session_state[question_error_key])
+                    st.markdown(contador_html, unsafe_allow_html=True)
                 else:
-                    st.radio(
-                        "Responder",
-                        options=["VERDADERO", "FALSO"],
-                        key=answer_key,
-                        horizontal=True,
-                        disabled=locked,
-                        on_change=_handle_manual_answer_change,
-                        kwargs={
-                            "answer_key": answer_key,
-                            "evidencia_key": evidencia_key,
-                        },
-                    )
+                    st.caption("Disponible solo si seleccionas VERDADERO.")
 
-                if preguntas:
-                    respuestas_actuales = {
-                        idx_str: st.session_state.get(key)
-                        for idx_str, key in question_keys
-                    }
-                    evidencias_dict_envio = {
-                        idx_str: (
-                            _clean_text(st.session_state.get(e_key))
-                            if respuestas_actuales.get(idx_str) == "VERDADERO"
-                            else ""
-                        )
-                        for idx_str, e_key in evidencia_question_keys
-                    }
-                    evidencia_texto = " \n".join(
-                        texto for texto in evidencias_dict_envio.values() if texto
-                    )
-                    st.session_state[evidencia_key] = evidencia_texto
-                else:
-                    respuesta_manual_actual = st.session_state.get(answer_key, "FALSO")
-                    evidencia_texto = st.text_area(
-                        "Antecedentes de verificación",
-                        key=evidencia_key,
-                        placeholder="Describe brevemente los antecedentes que respaldan esta afirmación…",
-                        height=110,
-                        max_chars=STEP_CONFIG["max_char_limit"],
-                        disabled=locked or respuesta_manual_actual != "VERDADERO",
-                    )
+                ready_to_save = respuesta_manual in {"VERDADERO", "FALSO"}
+                if ready_to_save and respuesta_manual == "VERDADERO":
+                    ready_to_save = _is_evidence_valid(evidencia_texto)
 
-                    if respuesta_manual_actual == "VERDADERO":
-                        contador = len(_clean_text(evidencia_texto))
-                        contador_html = (
-                            f"<div class='stepper-form__counter{' stepper-form__counter--alert' if contador > STEP_CONFIG['soft_char_limit'] else ''}'>"
-                            f"{contador}/{STEP_CONFIG['soft_char_limit']}"
-                            "</div>"
-                        )
-                        st.markdown(contador_html, unsafe_allow_html=True)
-                    else:
-                        st.caption("Disponible solo si seleccionas VERDADERO.")
-
-                respuestas_dict = {
-                    idx_str: (
-                        st.session_state.get(key)
-                        if st.session_state.get(key) in {"VERDADERO", "FALSO"}
-                        else None
-                    )
-                    for idx_str, key in question_keys
-                }
-
-                if preguntas:
-                    normalizado_actual = _normalize_question_responses(level, respuestas_dict)
-                    ready_to_save = all(snapshot_completion)
-                    if ready_to_save:
-                        for idx_str, valor in normalizado_actual.items():
-                            if valor not in {"VERDADERO", "FALSO"}:
-                                ready_to_save = False
-                                break
-                            if valor == "VERDADERO" and not _is_evidence_valid(
-                                evidencias_dict_envio.get(idx_str)
-                            ):
-                                ready_to_save = False
-                                break
-                    auto_target = st.session_state.get(_AUTO_SAVE_KEY)
-                    if (
-                        auto_target == (dimension, level_id)
-                        and ready_to_save
-                        and not locked
-                    ):
-                        st.session_state[_AUTO_SAVE_KEY] = None
-                        success, error_message, banner = _handle_level_submission(
-                            dimension,
-                            level_id,
-                            respuestas_dict,
-                            evidencia_texto,
-                            evidencias_preguntas=evidencias_dict_envio,
-                            respuesta_manual=None,
-                        )
-                        st.session_state[_BANNER_KEY][dimension] = banner
-                        if error_message:
-                            st.session_state[_ERROR_KEY][dimension][level_id] = error_message
-                        else:
-                            st.session_state[_ERROR_KEY][dimension][level_id] = None
-                            _sync_dimension_score(dimension)
-                            _set_revision_flag(dimension, level_id, False)
-                            st.session_state[_EDIT_MODE_KEY][dimension][level_id] = False
-                            st.session_state[_CLOSE_EXPANDER_KEY] = (dimension, level_id)
-                            st.toast("Nivel guardado")
-                            _rerun_app()
-                else:
-                    valor_manual = st.session_state.get(answer_key)
-                    if valor_manual in {"VERDADERO", "FALSO"}:
-                        respuesta_manual = valor_manual
-                    ready_to_save = respuesta_manual is not None
-                    if respuesta_manual == "VERDADERO":
-                        if not _is_evidence_valid(evidencia_texto):
-                            ready_to_save = False
-
+                evidencias_dict_envio = None
                 st.session_state[_READY_KEY][dimension][level_id] = ready_to_save
 
-                error_msg = st.session_state[_ERROR_KEY][dimension].get(level_id)
-                if error_msg:
-                    st.error(error_msg)
+            error_msg = st.session_state[_ERROR_KEY][dimension].get(level_id)
+            if error_msg:
+                st.error(error_msg)
 
-                action_cols = st.columns([2, 1])
-                if preguntas:
-                    action_cols[0].empty()
-                    guardar = False
-                else:
-                    guardar = action_cols[0].button(
-                        "Guardar y continuar con el siguiente nivel",
-                        type="primary",
-                        disabled=locked or not ready_to_save,
-                        key=f"btn_guardar_{dimension}_{level_id}",
-                        use_container_width=True,
-                    )
-                show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
-                editar_label = "Cancelar" if show_cancel else "Editar"
-                editar_disabled = False
-                if not state.get("en_calculo") and edit_mode:
-                    editar_disabled = True
-                editar = action_cols[1].button(
-                    editar_label,
-                    disabled=editar_disabled,
-                    key=f"btn_editar_{dimension}_{level_id}",
+            action_cols = st.columns([2, 1])
+            if preguntas:
+                action_cols[0].empty()
+                guardar = guardar_click
+            else:
+                guardar = action_cols[0].button(
+                    "Guardar y continuar con el siguiente nivel",
+                    type="primary",
+                    disabled=locked or not ready_to_save,
+                    key=f"btn_guardar_{dimension}_{level_id}",
+                    use_container_width=True,
                 )
+
+            show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
+            editar_label = "Cancelar" if show_cancel else "Editar"
+            editar_disabled = False
+            if not state.get("en_calculo") and edit_mode:
+                editar_disabled = True
+            editar = action_cols[1].button(
+                editar_label,
+                disabled=editar_disabled,
+                key=f"btn_editar_{dimension}_{level_id}",
+            )
 
             if editar:
                 if locked:
@@ -1724,9 +1440,9 @@ def _render_dimension_tab(dimension: str) -> None:
                     _set_revision_flag(dimension, level_id, False)
                     st.session_state[_EDIT_MODE_KEY][dimension][level_id] = False
                     st.session_state[_CLOSE_EXPANDER_KEY] = (dimension, level_id)
+                    irl_level_flow.save_level("Nivel guardado")
                     st.toast("Guardado")
                     _rerun_app()
-
         if st.session_state.get(_CLOSE_EXPANDER_KEY) == (dimension, level_id):
             st.session_state[_CLOSE_EXPANDER_KEY] = None
             components.html(
