@@ -127,8 +127,10 @@ def _render_panel_html(responses_map: dict[int, bool]) -> str:
         achieved = data["achieved"] or 0.0
         percentage = data["percentage"]
         percentage_label = f"{percentage:.0f}%"
+        achieved_label = _format_weight(achieved)
+        total_label = _format_weight(total)
         tooltip = (
-            f"{percentage:.0f}% de cumplimiento · {achieved:.0f}/{total:.0f} características"
+            f"{percentage:.0f}% de cumplimiento · {achieved_label}/{total_label} características"
             if total
             else "Sin características registradas"
         )
