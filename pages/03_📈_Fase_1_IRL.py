@@ -1272,10 +1272,15 @@ def _render_level_question_flow(
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+    rerun_needed = False
     if nav.previous:
         irl_level_flow.step(-1, total_questions, cursor_key=cursor_key)
+        rerun_needed = True
     if nav.next:
         irl_level_flow.step(1, total_questions, cursor_key=cursor_key)
+        rerun_needed = True
+    if rerun_needed:
+        _rerun_app()
 
     respuestas_dict = irl_level_flow.serialize_answers(questions)
     evidencias_dict = irl_level_flow.serialize_evidences(questions)

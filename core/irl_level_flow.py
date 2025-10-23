@@ -251,9 +251,12 @@ _CSS_TEMPLATE = """
 }
 
 .<scope>__nav button[disabled] {
-  opacity: 0.45 !important;
+  opacity: 1 !important;
   cursor: not-allowed !important;
   box-shadow: none !important;
+  background: linear-gradient(135deg, #d9d9d9, #bfbfbf) !important;
+  color: #1f1f1f !important;
+  border: 1px solid #b0b0b0 !important;
 }
 
 .<scope>__nav button:not([disabled]) {

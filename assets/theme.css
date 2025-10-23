@@ -78,6 +78,16 @@ h1, h2, h3, h4, h5, h6 {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.stButton > button:disabled,
+.stDownloadButton > button:disabled {
+  background: linear-gradient(135deg, #d9d9d9, #c4c4c4);
+  color: #1f1f1f;
+  border-color: #b5b5b5;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .stButton > button:hover,
 .stDownloadButton > button:hover {
   transform: translateY(-1px);
