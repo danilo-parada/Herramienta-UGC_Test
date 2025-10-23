@@ -104,6 +104,7 @@ class NavResult:
     previous: bool
     next: bool
     save: bool
+    edit: bool
 
 
 _CSS_TEMPLATE = """
@@ -245,9 +246,9 @@ _CSS_TEMPLATE = """
 
 .<scope>__nav {
   display: grid;
-  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 0.9rem;
-  align-items: center;
+  align-items: stretch;
 }
 
 .<scope>__nav button[disabled] {
@@ -569,13 +570,14 @@ def render_nav(
     current_valid: bool,
     prefix: str,
     disabled: bool = False,
+    edit_label: str = "Editar",
+    edit_disabled: bool = False,
 ) -> NavResult:
     """Render navigation buttons and return the click results."""
 
     prev_disabled = disabled or current_idx <= 0
     next_disabled = disabled or current_idx >= total_questions - 1 or not current_valid
-    last_question = current_idx >= total_questions - 1
-    save_disabled = disabled or not (last_question and can_save)
+    save_disabled = disabled or not can_save
 
     st.markdown(
         f"<div class='{CSS_SCOPE_CLASS}__nav'>",
@@ -603,11 +605,25 @@ def render_nav(
         use_container_width=True,
         type="primary" if not save_disabled else "secondary",
     )
+    edit_type = "secondary"
+    if not edit_disabled and edit_label != "Editar":
+        edit_type = "primary"
+    btn_edit = st.button(
+        edit_label,
+        key=f"{prefix}_edit",
+        disabled=edit_disabled,
+        use_container_width=True,
+        type=edit_type,
+    )
 
-    if not disabled:
-        hint = "" if last_question else "Puedes avanzar con Siguiente cuando completes la pregunta." if next_disabled else ""
-    else:
+    if disabled:
         hint = "Modo solo lectura."
+    elif not current_valid:
+        hint = "Completa la pregunta actual para avanzar."
+    elif not can_save:
+        hint = "Responde todas las preguntas para habilitar Guardar."
+    else:
+        hint = ""
     if hint:
         st.markdown(
             f"<div class='{CSS_SCOPE_CLASS}__nav-hint'>{escape(hint)}</div>",
@@ -616,7 +632,7 @@ def render_nav(
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    return NavResult(previous=btn_prev, next=btn_next, save=btn_save)
+    return NavResult(previous=btn_prev, next=btn_next, save=btn_save, edit=btn_edit)
 
 
 def save_level(message: str = "Nivel guardado correctamente.") -> None:
