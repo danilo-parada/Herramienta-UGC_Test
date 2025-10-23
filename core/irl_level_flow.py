@@ -493,9 +493,15 @@ def render_question(
     note_required = bool(st.session_state.get(question.value_key)) and question.require_note_when_true
     note_disabled = disabled or not st.session_state.get(question.value_key)
 
+    note_value = st.session_state.get(question.note_key, "")
+    if not isinstance(note_value, str):
+        note_value = "" if note_value is None else str(note_value)
+        st.session_state[question.note_key] = note_value
+
     st.text_area(
         "Antecedentes de verificación",
         key=question.note_key,
+        value=note_value,
         placeholder=question.note_placeholder,
         disabled=note_disabled,
         height=110,
