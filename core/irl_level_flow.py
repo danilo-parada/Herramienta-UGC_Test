@@ -396,12 +396,22 @@ def _note_value(question: Question) -> str:
 def _answer_value(question: Question) -> str | None:
     """Return the textual answer for ``question`` when available."""
 
+    selected = bool(st.session_state.get(question.value_key))
+    derived_answer = "VERDADERO" if selected else "FALSO"
+
     if not question.answer_key:
-        return None
+        return derived_answer
+
     answer = st.session_state.get(question.answer_key)
-    if answer in {"VERDADERO", "FALSO"}:
-        return str(answer)
-    return None
+    if answer not in {"VERDADERO", "FALSO"}:
+        st.session_state[question.answer_key] = derived_answer
+        return derived_answer
+
+    if answer != derived_answer:
+        st.session_state[question.answer_key] = derived_answer
+        return derived_answer
+
+    return str(answer)
 
 
 def question_valid(question: Question) -> bool:
