@@ -129,6 +129,11 @@ def _render_panel_html(responses_map: dict[int, bool]) -> str:
         percentage_label = f"{percentage:.0f}%"
         achieved_label = _format_weight(achieved)
         total_label = _format_weight(total)
+        score_caption = (
+            f"{achieved_label}/{total_label} características"
+            if total
+            else "Sin características registradas"
+        )
         tooltip = (
             f"{percentage:.0f}% de cumplimiento · {achieved_label}/{total_label} características"
             if total
@@ -154,7 +159,10 @@ def _render_panel_html(responses_map: dict[int, bool]) -> str:
                         <h4>{title}</h4>
                         <span>{subtitle}</span>
                     </div>
-                    <strong>{percentage}</strong>
+                    <div class='ebct-phase__score'>
+                        <strong>{percentage}</strong>
+                        <span>{score_caption}</span>
+                    </div>
                 </div>
                 <div class='ebct-phase__items'>
                     {items}
@@ -166,6 +174,7 @@ def _render_panel_html(responses_map: dict[int, bool]) -> str:
                 title=escape(str(phase.get("name", "Fase"))),
                 subtitle=escape(str(phase.get("subtitle", ""))),
                 percentage=escape(percentage_label),
+                score_caption=escape(score_caption),
                 items=items_html,
             )
         )
@@ -426,9 +435,22 @@ st.markdown(
         color: var(--text-500);
     }
 
-    .ebct-phase__header strong {
+    .ebct-phase__score {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.18rem;
+    }
+
+    .ebct-phase__score strong {
         font-size: 1.35rem;
         color: var(--phase-accent, var(--forest-700));
+    }
+
+    .ebct-phase__score span {
+        font-size: 0.78rem;
+        color: var(--text-500);
+        letter-spacing: 0.2px;
     }
 
     .ebct-phase__items {
