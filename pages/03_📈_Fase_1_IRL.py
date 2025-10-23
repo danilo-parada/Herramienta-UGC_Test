@@ -2604,6 +2604,7 @@ st.markdown(
 )
 
 fase0_page = next(Path("pages").glob("02_*_Fase_0_Portafolio.py"), None)
+fase2_page = next(Path("pages").glob("04_*_Fase_2_*.py"), None)
 if fase0_page:
     st.markdown("<div class='back-band'>", unsafe_allow_html=True)
     if st.button("Volver a Fase 0", type="primary"):
@@ -2612,6 +2613,8 @@ if fase0_page:
 
 payload = st.session_state.get('fase1_payload')
 fase1_ready = st.session_state.get('fase1_ready', False)
+if "fase2_ready" not in st.session_state:
+    st.session_state["fase2_ready"] = False
 
 if not payload or not fase1_ready:
     st.warning('Calcula el ranking de candidatos en Fase 0 y usa el boton "Ir a Fase 1" para continuar.')
@@ -2710,6 +2713,12 @@ with st.container():
 
 project_id = parse_project_id(seleccion)
 
+previous_project_id = st.session_state.get("fase2_last_project_id")
+if previous_project_id is not None and previous_project_id != project_id:
+    st.session_state["fase2_ready"] = False
+    st.session_state.pop("fase2_payload", None)
+st.session_state["fase2_last_project_id"] = project_id
+
 selected_project = df_port.loc[df_port["id_innovacion"] == project_id].iloc[0]
 impacto_txt = selected_project.get("impacto") or "No informado"
 estado_txt = selected_project.get("estatus") or "Sin estado"
@@ -2717,6 +2726,16 @@ responsable_txt = selected_project.get("responsable_innovacion") or "Sin respons
 transferencia_txt = selected_project.get("potencial_transferencia") or "Sin potencial declarado"
 evaluacion_val = selected_project.get("evaluacion_numerica")
 evaluacion_txt = f"{float(evaluacion_val):.1f}" if pd.notna(evaluacion_val) else "—"
+
+project_snapshot = {
+    "id_innovacion": int(project_id),
+    "nombre_innovacion": selected_project.get("nombre_innovacion", ""),
+    "potencial_transferencia": transferencia_txt,
+    "impacto": impacto_txt,
+    "estatus": estado_txt,
+    "responsable_innovacion": responsable_txt,
+    "evaluacion_numerica": float(evaluacion_val) if pd.notna(evaluacion_val) else None,
+}
 
 selection_meta = [
     ("Impacto estratégico", impacto_txt),
@@ -2820,17 +2839,50 @@ with st.container():
 
     col_guardar, col_ayuda = st.columns([1, 1])
     with col_guardar:
-        if st.button("Guardar evaluacion", type="primary"):
+        finalize_clicked = st.button("Finalizar evaluación", type="primary")
+        if finalize_clicked:
             if puntaje is None:
-                st.error("Define evidencias consecutivas en al menos una dimensión para calcular el IRL antes de guardar.")
+                st.error("Define evidencias consecutivas en al menos una dimensión para calcular el IRL antes de finalizar.")
             else:
                 try:
                     save_trl_result(project_id, df_respuestas[["dimension", "nivel", "evidencia"]], float(puntaje))
-                    st.success("Evaluacion guardada correctamente.")
                     _sync_all_scores()
-                    _rerun_app()
+                    historial = get_trl_history(project_id)
+                    fecha_eval = historial["fecha_eval"].iloc[0] if not historial.empty else None
+                    responses_records = df_respuestas[["dimension", "nivel", "evidencia"]].to_dict("records")
+                    st.session_state["fase2_ready"] = True
+                    st.session_state["fase2_payload"] = {
+                        "project_id": project_snapshot["id_innovacion"],
+                        "project_snapshot": project_snapshot.copy(),
+                        "responses": responses_records,
+                        "irl_score": float(puntaje),
+                        "fecha_eval": fecha_eval,
+                    }
+                    st.session_state["fase2_last_project_id"] = project_id
+                    if fase2_page:
+                        st.switch_page(str(fase2_page))
+                    else:
+                        st.success("Evaluacion guardada correctamente.")
+                        _rerun_app()
                 except Exception as error:
                     st.error(f"Error al guardar: {error}")
+
+        fase2_payload = st.session_state.get("fase2_payload")
+        fase2_ready_for_project = (
+            st.session_state.get("fase2_ready", False)
+            and fase2_payload
+            and fase2_payload.get("project_id") == project_id
+        )
+        go_fase2 = st.button(
+            "Ir a Fase 2",
+            key="btn_go_fase2",
+            disabled=not fase2_ready_for_project,
+        )
+        if go_fase2:
+            if fase2_page:
+                st.switch_page(str(fase2_page))
+            else:
+                st.warning("La página de Fase 2 aún no está disponible.")
 
     with col_ayuda:
         st.info(
