@@ -370,7 +370,9 @@ def init_state(questions: Sequence[Question], *, cursor_key: str) -> int:
         if question.note_key not in st.session_state:
             st.session_state[question.note_key] = ""
         else:
-            st.session_state[question.note_key] = str(st.session_state[question.note_key])
+            current_note = st.session_state[question.note_key]
+            if not isinstance(current_note, str):
+                st.session_state[question.note_key] = "" if current_note is None else str(current_note)
 
     total = len(questions)
     if cursor_key not in st.session_state:
@@ -490,9 +492,6 @@ def render_question(
 
     note_required = bool(st.session_state.get(question.value_key)) and question.require_note_when_true
     note_disabled = disabled or not st.session_state.get(question.value_key)
-    raw_note_value = st.session_state.get(question.note_key, "")
-    if not isinstance(raw_note_value, str):
-        st.session_state[question.note_key] = "" if raw_note_value is None else str(raw_note_value)
 
     st.text_area(
         "Antecedentes de verificación",

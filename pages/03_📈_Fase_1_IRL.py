@@ -911,10 +911,11 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
             valor = state.get("respuestas_preguntas", {}).get(clave)
             st.session_state[pregunta_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
             st.session_state[toggle_key] = st.session_state[pregunta_key] == "VERDADERO"
-            evidencia_val = evidencias_estado.get(clave, "") or ""
-            st.session_state[evidencia_key] = evidencia_val
-            if evidencia_val:
-                aggregated.append(str(evidencia_val).strip())
+            evidencia_val = evidencias_estado.get(clave, "")
+            evidencia_texto = "" if evidencia_val is None else str(evidencia_val)
+            st.session_state[evidencia_key] = evidencia_texto
+            if evidencia_texto:
+                aggregated.append(evidencia_texto.strip())
         evidencia_join_key = f"evid_{dimension}_{level_id}"
         st.session_state[evidencia_join_key] = " \n".join(aggregated)
         total_questions = len(preguntas)
@@ -933,7 +934,8 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
         evidencia_key = f"evid_{dimension}_{level_id}"
         valor = state.get("respuesta")
         st.session_state[answer_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
-        st.session_state[evidencia_key] = state.get("evidencia", "") or ""
+        evidencia_val = state.get("evidencia", "")
+        st.session_state[evidencia_key] = "" if evidencia_val is None else str(evidencia_val)
     if selector_key not in st.session_state:
         st.session_state[selector_key] = 0
 
@@ -1178,7 +1180,13 @@ def _render_level_question_flow(
             )
 
         if note_key not in st.session_state:
-            st.session_state[note_key] = existing_evidences.get(idx_str, "") or ""
+            default_note = existing_evidences.get(idx_str, "")
+            if not isinstance(default_note, str):
+                default_note = "" if default_note is None else str(default_note)
+            st.session_state[note_key] = default_note
+        elif not isinstance(st.session_state[note_key], str):
+            current_note = st.session_state.get(note_key)
+            st.session_state[note_key] = "" if current_note is None else str(current_note)
 
         questions.append(
             irl_level_flow.Question(
@@ -1310,7 +1318,8 @@ def _render_dimension_tab(dimension: str) -> None:
             answer_key = f"resp_{dimension}_{level_id}"
             evidencia_key = f"evid_{dimension}_{level_id}"
             if evidencia_key not in st.session_state:
-                st.session_state[evidencia_key] = state.get("evidencia", "")
+                evidencia_val = state.get("evidencia", "")
+                st.session_state[evidencia_key] = "" if evidencia_val is None else str(evidencia_val)
 
             respuestas_dict: dict[str, str | None] = {}
             evidencias_dict_envio: dict[str, str] | None = None
