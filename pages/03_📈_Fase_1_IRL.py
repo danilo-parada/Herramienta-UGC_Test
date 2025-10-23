@@ -2842,30 +2842,36 @@ with st.container():
         finalize_clicked = st.button("Finalizar evaluación", type="primary")
         if finalize_clicked:
             if puntaje is None:
-                st.error("Define evidencias consecutivas en al menos una dimensión para calcular el IRL antes de finalizar.")
-            else:
-                try:
-                    save_trl_result(project_id, df_respuestas[["dimension", "nivel", "evidencia"]], float(puntaje))
-                    _sync_all_scores()
-                    historial = get_trl_history(project_id)
-                    fecha_eval = historial["fecha_eval"].iloc[0] if not historial.empty else None
-                    responses_records = df_respuestas[["dimension", "nivel", "evidencia"]].to_dict("records")
-                    st.session_state["fase2_ready"] = True
-                    st.session_state["fase2_payload"] = {
-                        "project_id": project_snapshot["id_innovacion"],
-                        "project_snapshot": project_snapshot.copy(),
-                        "responses": responses_records,
-                        "irl_score": float(puntaje),
-                        "fecha_eval": fecha_eval,
-                    }
-                    st.session_state["fase2_last_project_id"] = project_id
-                    if fase2_page:
-                        st.switch_page(str(fase2_page))
-                    else:
-                        st.success("Evaluacion guardada correctamente.")
-                        _rerun_app()
-                except Exception as error:
-                    st.error(f"Error al guardar: {error}")
+                st.info(
+                    "La evaluación se guardará sin campos respondidos ni niveles acreditados para que puedas avanzar a la fase 2."
+                )
+            trl_value = float(puntaje) if puntaje is not None else None
+            try:
+                save_trl_result(
+                    project_id,
+                    df_respuestas[["dimension", "nivel", "evidencia"]],
+                    trl_value,
+                )
+                _sync_all_scores()
+                historial = get_trl_history(project_id)
+                fecha_eval = historial["fecha_eval"].iloc[0] if not historial.empty else None
+                responses_records = df_respuestas[["dimension", "nivel", "evidencia"]].to_dict("records")
+                st.session_state["fase2_ready"] = True
+                st.session_state["fase2_payload"] = {
+                    "project_id": project_snapshot["id_innovacion"],
+                    "project_snapshot": project_snapshot.copy(),
+                    "responses": responses_records,
+                    "irl_score": trl_value,
+                    "fecha_eval": fecha_eval,
+                }
+                st.session_state["fase2_last_project_id"] = project_id
+                if fase2_page:
+                    st.switch_page(str(fase2_page))
+                else:
+                    st.success("Evaluacion guardada correctamente.")
+                    _rerun_app()
+            except Exception as error:
+                st.error(f"Error al guardar: {error}")
 
         fase2_payload = st.session_state.get("fase2_payload")
         fase2_ready_for_project = (

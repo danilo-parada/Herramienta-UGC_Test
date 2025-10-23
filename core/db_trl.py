@@ -23,19 +23,29 @@ def init_db_trl():
         conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{TABLE_TRL}_idinv ON {TABLE_TRL}(id_innovacion);")
         conn.commit()
 
-def save_trl_result(id_innovacion: int, df_dim: pd.DataFrame, trl_global: float):
+def save_trl_result(id_innovacion: int, df_dim: pd.DataFrame, trl_global: float | None):
     tz = pytz.timezone(TZ_NAME)
     now_str = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
     rows = []
-    for _, r in df_dim.iterrows():
+    if df_dim.empty:
         rows.append({
             "id_innovacion": id_innovacion,
             "fecha_eval": now_str,
-            "dimension": str(r.get("dimension")),
-            "nivel": int(r.get("nivel")) if pd.notna(r.get("nivel")) else None,
-            "evidencia": str(r.get("evidencia")) if r.get("evidencia") is not None else "",
-            "trl_global": trl_global
+            "dimension": None,
+            "nivel": None,
+            "evidencia": "",
+            "trl_global": trl_global,
         })
+    else:
+        for _, r in df_dim.iterrows():
+            rows.append({
+                "id_innovacion": id_innovacion,
+                "fecha_eval": now_str,
+                "dimension": str(r.get("dimension")),
+                "nivel": int(r.get("nivel")) if pd.notna(r.get("nivel")) else None,
+                "evidencia": str(r.get("evidencia")) if r.get("evidencia") is not None else "",
+                "trl_global": trl_global,
+            })
     df_save = pd.DataFrame(rows)
     with get_conn() as conn:
         df_save.to_sql(TABLE_TRL, conn, if_exists="append", index=False)
