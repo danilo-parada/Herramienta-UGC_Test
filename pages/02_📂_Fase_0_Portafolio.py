@@ -3654,6 +3654,88 @@ if resultado is not None and not resultado.empty:
 
                 resumen_df.to_excel(writer, index=False, sheet_name='Resumen')
 
+                fase2_sheet_name = 'Fase 2 EBCT'
+                fase2_intro_lines = [
+                    'Objetivos de la plataforma',
+                    '• Guiar EBCT desde la ideación hasta la internacionalización.',
+                    '• Visualizar la hoja de ruta con etapas, capacidades y próximos pasos según su madurez.',
+                    '• Identificar fuentes de financiamiento, programas y aliados clave.',
+                    '• Reducir la incertidumbre para mejorar la gestión estratégica de las EBCT.',
+                    '• Detectar brechas y saturación para orientar coordinación pública.',
+                    'Hito objetivo: Agosto 2025',
+                    '',
+                    'Funcionalidades clave',
+                    '• Mapa base de actores por región (universidades, OTL, incubadoras, fondos).',
+                    '• Rutas personalizadas según autodiagnóstico tecnológico y comercial.',
+                    '• Directorio actualizado de programas y financiamiento con filtros.',
+                    '• Canal de vinculación con instituciones del ecosistema.',
+                    '• Seguimiento del avance, contactos y resultados.',
+                    '• Visualización clara desde investigación hasta mercados.',
+                    '',
+                    'Público objetivo',
+                    '• Equipos científicos que inician valorización tecnológica.',
+                    '• Spin-offs en validación técnica o comercial.',
+                    '• Startups tecnológicas que buscan clientes o inversión.',
+                    '• EBCT consolidadas que requieren apoyo para escalar o internacionalizarse.',
+                    '• Actores de apoyo que necesitan información integrada del ecosistema.',
+                    '• Abierta a proyectos dinámicos con alto nivel de innovación.',
+                    '',
+                    'Evaluación de trayectoria (proyecto seleccionado)',
+                ]
+
+                fase2_sheet = writer.book.create_sheet(title=fase2_sheet_name)
+                writer.sheets[fase2_sheet_name] = fase2_sheet
+
+                if Alignment is not None:
+                    fase2_sheet.column_dimensions['A'].width = 105
+
+                for idx, line in enumerate(fase2_intro_lines, start=1):
+                    cell = fase2_sheet.cell(row=idx, column=1, value=line)
+                    if Alignment is not None:
+                        cell.alignment = Alignment(wrap_text=True, vertical='top')
+
+                selection_columns = [
+                    'ranking',
+                    'id_innovacion',
+                    'nombre_innovacion',
+                    'potencial_transferencia',
+                    'impacto',
+                    'estatus',
+                    'responsable_innovacion',
+                    'evaluacion_calculada',
+                    'recomendacion',
+                ]
+                available_columns = [col for col in selection_columns if col in resultado.columns]
+
+                if available_columns and not resultado.empty:
+                    orden_df = resultado.sort_values('ranking') if 'ranking' in resultado.columns else resultado
+                    seleccion_df = orden_df.loc[:, available_columns].head(1).copy()
+
+                    if 'evaluacion_calculada' in seleccion_df.columns:
+                        seleccion_df.loc[:, 'evaluacion_calculada'] = pd.to_numeric(
+                            seleccion_df['evaluacion_calculada'], errors='coerce'
+                        ).round(1)
+
+                    column_labels = {
+                        'ranking': 'Ranking fase 0',
+                        'id_innovacion': 'ID innovación',
+                        'nombre_innovacion': 'Proyecto seleccionado',
+                        'potencial_transferencia': 'Potencial de transferencia',
+                        'impacto': 'Impacto estratégico',
+                        'estatus': 'Estado actual',
+                        'responsable_innovacion': 'Responsable de innovación',
+                        'evaluacion_calculada': 'Evaluación Fase 0',
+                        'recomendacion': 'Recomendación automática',
+                    }
+                    seleccion_df = seleccion_df.rename(columns=column_labels)
+
+                    seleccion_df.to_excel(
+                        writer,
+                        index=False,
+                        sheet_name=fase2_sheet_name,
+                        startrow=len(fase2_intro_lines),
+                    )
+
             st.download_button(
                 'Descargar evaluacion (Excel)',
                 data=eval_buffer.getvalue(),
