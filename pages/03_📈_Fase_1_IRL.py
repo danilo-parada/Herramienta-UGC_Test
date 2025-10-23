@@ -575,6 +575,7 @@ _EDIT_MODE_KEY = "irl_level_edit_mode"
 _AUTO_SAVE_KEY = "irl_auto_save"
 _QUESTION_PROGRESS_KEY = "irl_question_progress"
 _RESTORE_ON_EDIT_KEY = "irl_restore_on_edit"
+_PENDING_RESTORE_QUEUE_KEY = "irl_pending_restore_queue"
 
 _STATUS_CLASS_MAP = {
     "Pendiente": "pending",
@@ -940,6 +941,40 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
         st.session_state[selector_key] = 0
 
 
+def _enqueue_level_restore(dimension: str, level_id: int) -> None:
+    queue = st.session_state.get(_PENDING_RESTORE_QUEUE_KEY)
+    if not isinstance(queue, list):
+        queue = []
+    item = (dimension, level_id)
+    if item not in queue:
+        queue.append(item)
+    st.session_state[_PENDING_RESTORE_QUEUE_KEY] = queue
+
+
+def _process_pending_restores(dimension: str) -> None:
+    queue = st.session_state.get(_PENDING_RESTORE_QUEUE_KEY)
+    if not queue:
+        return
+    if not isinstance(queue, list):
+        queue = [queue]
+    remaining: list[tuple[str, int]] = []
+    for pending_entry in queue:
+        if (
+            not isinstance(pending_entry, tuple)
+            or len(pending_entry) != 2
+            or not isinstance(pending_entry[0], str)
+            or not isinstance(pending_entry[1], int)
+        ):
+            continue
+        pending_dimension, pending_level = pending_entry
+        if pending_dimension == dimension:
+            _restore_level_form_values(pending_dimension, pending_level)
+            _update_ready_flag(pending_dimension, pending_level)
+        else:
+            remaining.append((pending_dimension, pending_level))
+    st.session_state[_PENDING_RESTORE_QUEUE_KEY] = remaining
+
+
 def _sync_dimension_score(dimension: str) -> int:
     niveles = LEVEL_DEFINITIONS.get(dimension, [])
     if not niveles:
@@ -1256,6 +1291,7 @@ def _render_level_question_flow(
 
 def _render_dimension_tab(dimension: str) -> None:
     _init_irl_state()
+    _process_pending_restores(dimension)
     levels = LEVEL_DEFINITIONS.get(dimension, [])
     counts = _compute_dimension_counts(dimension)
 
@@ -1425,9 +1461,8 @@ def _render_dimension_tab(dimension: str) -> None:
                     st.toast("Modo edición activado")
                     _rerun_app()
                 elif state.get("en_calculo"):
-                    _restore_level_form_values(dimension, level_id)
+                    _enqueue_level_restore(dimension, level_id)
                     st.session_state[_EDIT_MODE_KEY][dimension][level_id] = False
-                    _update_ready_flag(dimension, level_id)
                     st.toast("Cambios descartados")
                     _rerun_app()
 
