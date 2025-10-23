@@ -4,6 +4,7 @@ DB_PATH = "db.sqlite"
 
 TABLE = "innovaciones"
 TABLE_TRL = "trl_resultados"
+TABLE_EBCT = "ebct_evaluaciones"
 
 IMPACTO_ORDER = {"bajo": 1, "medio": 2, "alto": 3}
 
