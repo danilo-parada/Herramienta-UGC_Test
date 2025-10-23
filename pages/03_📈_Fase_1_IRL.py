@@ -1192,7 +1192,9 @@ def _render_level_question_flow(
     descripcion: str,
     *,
     locked: bool,
-) -> tuple[dict[str, str | None], dict[str, str], str, bool, bool]:
+    edit_label: str,
+    edit_disabled: bool,
+) -> tuple[dict[str, str | None], dict[str, str], str, bool, bool, bool]:
     """Render the question flow for a level using the shared helpers."""
 
     irl_level_flow.inject_css()
@@ -1268,6 +1270,8 @@ def _render_level_question_flow(
         current_valid=current_valid,
         prefix=prefix,
         disabled=locked,
+        edit_label=edit_label,
+        edit_disabled=edit_disabled,
     )
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -1291,7 +1295,14 @@ def _render_level_question_flow(
 
     st.session_state[_READY_KEY][dimension][level_id] = ready_to_save
 
-    return respuestas_dict, evidencias_dict, evidencia_texto, ready_to_save, nav.save
+    return (
+        respuestas_dict,
+        evidencias_dict,
+        evidencia_texto,
+        ready_to_save,
+        nav.save,
+        nav.edit,
+    )
 
 
 def _render_dimension_tab(dimension: str) -> None:
@@ -1368,6 +1379,13 @@ def _render_dimension_tab(dimension: str) -> None:
             respuesta_manual: str | None = None
             ready_to_save = False
             guardar_click = False
+            editar_click = False
+
+            show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
+            editar_label = "Cancelar" if show_cancel else "Editar"
+            editar_disabled = False
+            if not state.get("en_calculo") and edit_mode:
+                editar_disabled = True
 
             if preguntas:
                 (
@@ -1376,12 +1394,15 @@ def _render_dimension_tab(dimension: str) -> None:
                     evidencia_texto,
                     ready_to_save,
                     guardar_click,
+                    editar_click,
                 ) = _render_level_question_flow(
                     dimension,
                     level_id,
                     preguntas,
                     level.get("descripcion", ""),
                     locked=locked,
+                    edit_label=editar_label,
+                    edit_disabled=editar_disabled,
                 )
             else:
                 current_answer = state.get("respuesta")
@@ -1436,11 +1457,11 @@ def _render_dimension_tab(dimension: str) -> None:
             if error_msg:
                 st.error(error_msg)
 
-            action_cols = st.columns([2, 1])
             if preguntas:
-                action_cols[0].empty()
                 guardar = guardar_click
+                editar = editar_click
             else:
+                action_cols = st.columns([2, 1])
                 guardar = action_cols[0].button(
                     "Guardar y continuar con el siguiente nivel",
                     type="primary",
@@ -1448,17 +1469,11 @@ def _render_dimension_tab(dimension: str) -> None:
                     key=f"btn_guardar_{dimension}_{level_id}",
                     use_container_width=True,
                 )
-
-            show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
-            editar_label = "Cancelar" if show_cancel else "Editar"
-            editar_disabled = False
-            if not state.get("en_calculo") and edit_mode:
-                editar_disabled = True
-            editar = action_cols[1].button(
-                editar_label,
-                disabled=editar_disabled,
-                key=f"btn_editar_{dimension}_{level_id}",
-            )
+                editar = action_cols[1].button(
+                    editar_label,
+                    disabled=editar_disabled,
+                    key=f"btn_editar_{dimension}_{level_id}",
+                )
 
             if editar:
                 if locked:
