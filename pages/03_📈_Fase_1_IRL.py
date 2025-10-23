@@ -1192,10 +1192,8 @@ def _render_level_question_flow(
     descripcion: str,
     *,
     locked: bool,
-    edit_label: str,
-    edit_disabled: bool,
-) -> tuple[dict[str, str | None], dict[str, str], str, bool, bool, bool]:
-    """Render the question flow for a level using the shared helpers."""
+) -> tuple[dict[str, str | None], dict[str, str], str, bool]:
+    """Render all questions for the level in a compact grid layout."""
 
     irl_level_flow.inject_css()
 
@@ -1217,6 +1215,13 @@ def _render_level_question_flow(
                 default_option if default_option in {"VERDADERO", "FALSO"} else "FALSO"
             )
 
+        if value_key not in st.session_state:
+            st.session_state[value_key] = st.session_state[answer_key] == "VERDADERO"
+        else:
+            marcado = bool(st.session_state[value_key])
+            st.session_state[value_key] = marcado
+            st.session_state[answer_key] = "VERDADERO" if marcado else "FALSO"
+
         if note_key not in st.session_state:
             default_note = existing_evidences.get(idx_str, "")
             if not isinstance(default_note, str):
@@ -1237,112 +1242,83 @@ def _render_level_question_flow(
         )
 
     cursor_key = f"{irl_level_flow.STATE_PREFIX}{dimension}_{level_id}_current_idx"
-    current_idx = irl_level_flow.init_state(questions, cursor_key=cursor_key)
-    total_questions = len(questions)
-    level_done = irl_level_flow.level_completed(questions)
-    prefix = f"{irl_level_flow.STATE_PREFIX}{dimension}_{level_id}"
+    irl_level_flow.init_state(questions, cursor_key=cursor_key)
 
+    total_questions = len(questions)
     st.markdown(
         f"<div class='{irl_level_flow.CSS_SCOPE_CLASS}'>",
         unsafe_allow_html=True,
     )
 
+    level_done = irl_level_flow.level_completed(questions)
     irl_level_flow.render_level_header(
         f"Nivel {level_id}",
         level_done,
         descripcion,
     )
 
-    current_question: irl_level_flow.Question | None = None
     if total_questions:
-        current_question = questions[current_idx]
-        current_valid = irl_level_flow.render_question(
-            current_question,
-            position=current_idx,
-            total=total_questions,
-            disabled=locked,
-        )
-    else:
-        current_valid = True
+        progress = _ensure_question_progress(dimension, level_id, total_questions)
+        progress["active"] = 0
+        st.session_state[_QUESTION_PROGRESS_KEY][dimension][level_id] = progress
 
-    def _snapshot_current_question() -> None:
-        if not current_question:
-            return
-        answer = st.session_state.get(current_question.answer_key)
-        if answer not in {"VERDADERO", "FALSO"}:
-            answer = (
-                "VERDADERO"
-                if st.session_state.get(current_question.value_key)
-                else "FALSO"
-            )
-        evidence_value = st.session_state.get(current_question.note_key, "")
-        if not isinstance(evidence_value, str):
-            evidence_value = "" if evidence_value is None else str(evidence_value)
-        if current_valid and not is_saved:
-            _persist_question_progress(
-                dimension,
-                level_id,
-                current_question.idx,
-                answer,
-                evidence_value,
-            )
-        if current_valid:
-            _mark_question_saved(
-                dimension,
-                level_id,
-                current_question.idx,
-                total_questions,
-            )
-        else:
-            _mark_question_pending(
-                dimension,
-                level_id,
-                current_question.idx,
-                total_questions,
-            )
+        columns_per_row = 2 if total_questions > 1 else 1
+        for start in range(0, total_questions, columns_per_row):
+            row_questions = questions[start : start + columns_per_row]
+            cols = st.columns(len(row_questions))
+            for offset, (question, col) in enumerate(zip(row_questions, cols)):
+                with col:
+                    valid = irl_level_flow.render_question(
+                        question,
+                        position=start + offset,
+                        total=total_questions,
+                        disabled=locked,
+                    )
 
-    nav = irl_level_flow.render_nav(
-        total_questions,
-        current_idx,
-        can_save=level_done,
-        current_valid=current_valid,
-        prefix=prefix,
-        disabled=locked,
-        edit_label=edit_label,
-        edit_disabled=edit_disabled,
-    )
+                respuesta_actual = st.session_state.get(question.answer_key)
+                evidencia_actual = st.session_state.get(question.note_key, "")
+                if not isinstance(evidencia_actual, str):
+                    evidencia_actual = "" if evidencia_actual is None else str(evidencia_actual)
+
+                if valid and not is_saved:
+                    _persist_question_progress(
+                        dimension,
+                        level_id,
+                        question.idx,
+                        respuesta_actual,
+                        evidencia_actual,
+                    )
+
+                if valid:
+                    _mark_question_saved(
+                        dimension,
+                        level_id,
+                        question.idx,
+                        total_questions,
+                    )
+                else:
+                    _mark_question_pending(
+                        dimension,
+                        level_id,
+                        question.idx,
+                        total_questions,
+                    )
 
     st.markdown("</div>", unsafe_allow_html=True)
-
-    rerun_needed = False
-    if nav.previous:
-        _snapshot_current_question()
-        irl_level_flow.step(-1, total_questions, cursor_key=cursor_key)
-        rerun_needed = True
-    if nav.next:
-        _snapshot_current_question()
-        irl_level_flow.step(1, total_questions, cursor_key=cursor_key)
-        rerun_needed = True
-    if rerun_needed:
-        _rerun_app()
 
     respuestas_dict = irl_level_flow.serialize_answers(questions)
     evidencias_dict = irl_level_flow.serialize_evidences(questions)
     evidencia_texto = " \n".join(
         texto for texto in evidencias_dict.values() if texto
-    )
-    ready_to_save = level_done
+    ).strip()
 
+    evidencia_join_key = f"evid_{dimension}_{level_id}"
+    st.session_state[evidencia_join_key] = evidencia_texto
+
+    ready_to_save = irl_level_flow.level_completed(questions)
     st.session_state[_READY_KEY][dimension][level_id] = ready_to_save
 
-    return (
-        respuestas_dict,
-        evidencias_dict,
-        evidencia_texto,
-        ready_to_save,
-        nav.save,
-        nav.edit,
-    )
+    return respuestas_dict, evidencias_dict, evidencia_texto, ready_to_save
 
 
 def _render_dimension_tab(dimension: str) -> None:
@@ -1418,8 +1394,6 @@ def _render_dimension_tab(dimension: str) -> None:
             evidencia_texto = st.session_state.get(evidencia_key, "")
             respuesta_manual: str | None = None
             ready_to_save = False
-            guardar_click = False
-            editar_click = False
 
             show_cancel = bool(state.get("en_calculo")) and edit_mode and not locked
             editar_label = "Cancelar" if show_cancel else "Editar"
@@ -1433,16 +1407,12 @@ def _render_dimension_tab(dimension: str) -> None:
                     evidencias_dict_envio,
                     evidencia_texto,
                     ready_to_save,
-                    guardar_click,
-                    editar_click,
                 ) = _render_level_question_flow(
                     dimension,
                     level_id,
                     preguntas,
                     level.get("descripcion", ""),
                     locked=locked,
-                    edit_label=editar_label,
-                    edit_disabled=editar_disabled,
                 )
             else:
                 current_answer = state.get("respuesta")
@@ -1497,23 +1467,19 @@ def _render_dimension_tab(dimension: str) -> None:
             if error_msg:
                 st.error(error_msg)
 
-            if preguntas:
-                guardar = guardar_click
-                editar = editar_click
-            else:
-                action_cols = st.columns([2, 1])
-                guardar = action_cols[0].button(
-                    "Guardar y continuar con el siguiente nivel",
-                    type="primary",
-                    disabled=locked or not ready_to_save,
-                    key=f"btn_guardar_{dimension}_{level_id}",
-                    use_container_width=True,
-                )
-                editar = action_cols[1].button(
-                    editar_label,
-                    disabled=editar_disabled,
-                    key=f"btn_editar_{dimension}_{level_id}",
-                )
+            action_cols = st.columns([2, 1])
+            guardar = action_cols[0].button(
+                "Guardar y continuar con el siguiente nivel",
+                type="primary",
+                disabled=locked or not ready_to_save,
+                key=f"btn_guardar_{dimension}_{level_id}",
+                use_container_width=True,
+            )
+            editar = action_cols[1].button(
+                editar_label,
+                disabled=editar_disabled,
+                key=f"btn_editar_{dimension}_{level_id}",
+            )
 
             if editar:
                 if locked:

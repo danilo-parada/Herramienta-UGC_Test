@@ -168,18 +168,18 @@ _CSS_TEMPLATE = """
 .<scope>__question {
   border: 1px solid rgba(var(--shadow-color), 0.14);
   border-radius: 20px;
-  padding: 1.2rem 1.4rem 1.4rem;
+  padding: 1rem 1.15rem 1.2rem;
   background: #ffffff;
   box-shadow: 0 18px 38px rgba(var(--shadow-color), 0.12);
-  margin-bottom: 1.2rem;
+  margin-bottom: 0.8rem;
 }
 
 .<scope>__question-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 1.2rem;
-  margin-bottom: 1rem;
+  gap: 0.9rem;
+  margin-bottom: 0.85rem;
 }
 
 .<scope>__question-badge {
