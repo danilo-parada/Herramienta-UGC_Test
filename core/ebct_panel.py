@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from html import escape
 from typing import Mapping
 
 from .ebct import EBCT_PHASES, get_characteristics_by_phase
@@ -56,71 +55,29 @@ def prepare_panel_data(responses_map: Mapping[int, bool]) -> list[dict[str, obje
     return panel_rows
 
 
-def render_panel_html(responses_map: Mapping[int, bool]) -> str:
-    """Generate the HTML snippet used to display EBCT phase progress."""
+def build_phase_summary(responses_map: Mapping[int, bool]) -> list[dict[str, object]]:
+    """Return lightweight phase summaries ready for table-based rendering."""
 
-    panel_data = prepare_panel_data(responses_map)
-    html_chunks = ["<div class='ebct-roadmap'>"]
-    for data in panel_data:
+    phase_summaries: list[dict[str, object]] = []
+    for data in prepare_panel_data(responses_map):
         phase = data["phase"]
         total = data["total"] or 0.0
         achieved = data["achieved"] or 0.0
         percentage = data["percentage"]
-        percentage_label = f"{percentage:.0f}%"
-        achieved_label = format_weight(achieved)
-        total_label = format_weight(total)
-        score_caption = (
-            f"{achieved_label}/{total_label} características" if total else "Sin características registradas"
+        phase_summaries.append(
+            {
+                "id": phase.get("id"),
+                "name": phase.get("name", "Fase"),
+                "subtitle": phase.get("subtitle", ""),
+                "percentage_value": percentage,
+                "percentage_label": f"{percentage:.0f}%",
+                "achieved_value": achieved,
+                "achieved_label": format_weight(achieved),
+                "total_value": total,
+                "total_label": format_weight(total),
+            }
         )
-        tooltip = (
-            f"{percentage:.0f}% de cumplimiento · {achieved_label}/{total_label} características"
-            if total
-            else "Sin características registradas"
-        )
-        item_chunks: list[str] = []
-        for item in data["items"]:
-            chip_class = "ebct-chip ebct-chip--yes" if item["status"] else "ebct-chip ebct-chip--no"
-            tooltip_status = "Sí cumple" if item["status"] else "No cumple"
-            tooltip_label = f"{tooltip_status} · Peso {format_weight(item['weight'])}"
-            item_chunks.append(
-                (
-                    f"<div class=\"{chip_class}\" "
-                    f"style=\"--chip-color-start: {item['color_primary']}; --chip-color-end: {item['color_secondary']}\" "
-                    f"title=\"{escape(tooltip_label)}\">"
-                    f"<span class='ebct-chip__title'>{item['id']}. {escape(item['name'])}</span>"
-                    f"<small>Peso {format_weight(item['weight'])}</small>"
-                    "</div>"
-                )
-            )
-        items_html = "\n".join(item_chunks)
-        phase_html = (
-            "<div class='ebct-phase' style='--phase-accent: {accent}'>\n"
-            "<div class='ebct-phase__header' title='{tooltip}'>\n"
-            "<div>\n"
-            "<h4>{title}</h4>\n"
-            "<span>{subtitle}</span>\n"
-            "</div>\n"
-            "<div class='ebct-phase__score'>\n"
-            "<strong>{percentage}</strong>\n"
-            "<span>{score_caption}</span>\n"
-            "</div>\n"
-            "</div>\n"
-            "<div class='ebct-phase__items'>\n"
-            "{items}\n"
-            "</div>\n"
-            "</div>"
-        ).format(
-            accent=escape(str(phase.get("accent", "#3f8144"))),
-            tooltip=escape(tooltip),
-            title=escape(str(phase.get("name", "Fase"))),
-            subtitle=escape(str(phase.get("subtitle", ""))),
-            percentage=escape(percentage_label),
-            score_caption=escape(score_caption),
-            items=items_html,
-        )
-        html_chunks.append(phase_html)
-    html_chunks.append("</div>")
-    return "".join(html_chunks)
+    return phase_summaries
 
 
-__all__ = ["format_weight", "prepare_panel_data", "render_panel_html"]
+__all__ = ["format_weight", "prepare_panel_data", "build_phase_summary"]

@@ -18,7 +18,7 @@ from core.ebct import (
     EBCT_PHASES,
     get_characteristics_by_phase,
 )
-from core.ebct_panel import format_weight, render_panel_html
+from core.ebct_panel import build_phase_summary, format_weight, prepare_panel_data
 from core.theme import load_theme
 
 
@@ -31,6 +31,72 @@ def _display_text(value, default: str) -> str:
     if pd.isna(value):
         return default
     return str(value)
+
+
+def render_phase_overview(panel_map: dict[int, bool]) -> None:
+    """Render a simplified EBCT phase overview without custom HTML."""
+
+    phase_summary = build_phase_summary(panel_map)
+    if phase_summary:
+        summary_records = []
+        for entry in phase_summary:
+            total_value = entry["total_value"]
+            if total_value:
+                completed_label = f"{entry['achieved_label']}/{entry['total_label']}"
+            else:
+                completed_label = "Sin características registradas"
+            summary_records.append(
+                {
+                    "Fase": entry["name"],
+                    "Descripción": entry["subtitle"] or "—",
+                    "Cumplimiento": entry["percentage_label"],
+                    "Características cumplidas": completed_label,
+                }
+            )
+        summary_df = pd.DataFrame(summary_records)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    panel_data = prepare_panel_data(panel_map)
+    for data in panel_data:
+        phase = data["phase"]
+        phase_name = phase.get("name", "Fase")
+        phase_subtitle = phase.get("subtitle", "")
+        total = data["total"] or 0.0
+        achieved = data["achieved"] or 0.0
+        percentage = data["percentage"]
+        progress_value = max(0.0, min(1.0, percentage / 100 if total else 0.0))
+
+        with st.expander(phase_name, expanded=False):
+            if phase_subtitle:
+                st.caption(phase_subtitle)
+            st.progress(progress_value)
+            if total:
+                st.write(
+                    f"Cumplimiento: {percentage:.0f}% | Características logradas: "
+                    f"{format_weight(achieved)} de {format_weight(total)}"
+                )
+            else:
+                st.info("Sin características registradas para esta fase.")
+
+            if data["items"]:
+                items_df = pd.DataFrame(
+                    [
+                        {
+                            "ID": item["id"],
+                            "Característica": item["name"],
+                            "Cumple": "Sí" if item["status"] else "No",
+                            "Peso": format_weight(item["weight"]),
+                        }
+                        for item in data["items"]
+                    ]
+                )
+                st.dataframe(
+                    items_df,
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("No hay características asociadas a esta fase.")
 
 
 OPTION_NO = "No cumple"
@@ -693,7 +759,7 @@ with st.container():
     if panel_timestamp:
         st.caption(f"Última evaluación EBCT guardada el {panel_timestamp}.")
     if panel_map:
-        st.markdown(render_panel_html(panel_map), unsafe_allow_html=True)
+        render_phase_overview(panel_map)
     else:
         st.info("Guarda la evaluación para visualizar el panel segmentado por fase.")
 
