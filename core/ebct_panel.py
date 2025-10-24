@@ -5,7 +5,7 @@ from typing import Mapping
 from .ebct import EBCT_PHASES, get_characteristics_by_phase
 
 
-def format_weight(value: float | int | str) -> str:
+def format_weight(value: FloatIntStr) -> str:
     """Format a weight value for display, avoiding unnecessary decimals."""
 
     try:
@@ -17,11 +17,11 @@ def format_weight(value: float | int | str) -> str:
     return f"{value_float:.2f}"
 
 
-def prepare_panel_data(responses_map: Mapping[int, bool]) -> list[dict[str, object]]:
+def prepare_panel_data(responses_map: Mapping[int, bool]) -> List[Dict[str, object]]:
     """Return EBCT phase summaries ready for rendering."""
 
     grouped = get_characteristics_by_phase()
-    panel_rows: list[dict[str, object]] = []
+    panel_rows: List[Dict[str, object]] = []
     for phase in sorted(EBCT_PHASES, key=lambda info: int(info.get("order", 0))):
         items = []
         total = 0.0
