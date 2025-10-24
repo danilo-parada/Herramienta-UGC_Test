@@ -77,18 +77,22 @@ def render_panel_html(responses_map: Mapping[int, bool]) -> str:
             if total
             else "Sin características registradas"
         )
-        items_html = "".join(
-            (
-                "<div class='ebct-chip "
-                + ("ebct-chip--yes'" if item["status"] else "ebct-chip--no'")
-                + f" style='--chip-color-start: {item['color_primary']}; --chip-color-end: {item['color_secondary']}';"
-                + f" title='{escape(('Sí cumple' if item['status'] else 'No cumple') + ' · Peso ' + format_weight(item['weight']))}'>"
-                + f"<span class='ebct-chip__title'>{item['id']}. {escape(item['name'])}</span>"
-                + f"<small>Peso {format_weight(item['weight'])}</small>"
-                + "</div>"
+        item_chunks: list[str] = []
+        for item in data["items"]:
+            chip_class = "ebct-chip ebct-chip--yes" if item["status"] else "ebct-chip ebct-chip--no"
+            tooltip_status = "Sí cumple" if item["status"] else "No cumple"
+            tooltip_label = f"{tooltip_status} · Peso {format_weight(item['weight'])}"
+            item_chunks.append(
+                (
+                    f"<div class=\"{chip_class}\" "
+                    f"style=\"--chip-color-start: {item['color_primary']}; --chip-color-end: {item['color_secondary']}\" "
+                    f"title=\"{escape(tooltip_label)}\">"
+                    f"<span class='ebct-chip__title'>{item['id']}. {escape(item['name'])}</span>"
+                    f"<small>Peso {format_weight(item['weight'])}</small>"
+                    "</div>"
+                )
             )
-            for item in data["items"]
-        )
+        items_html = "".join(item_chunks)
         html_chunks.append(
             """
             <div class='ebct-phase' style='--phase-accent: {accent}'>
