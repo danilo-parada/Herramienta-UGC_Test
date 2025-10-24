@@ -92,34 +92,33 @@ def render_panel_html(responses_map: Mapping[int, bool]) -> str:
                     "</div>"
                 )
             )
-        items_html = "".join(item_chunks)
-        html_chunks.append(
-            """
-            <div class='ebct-phase' style='--phase-accent: {accent}'>
-                <div class='ebct-phase__header' title='{tooltip}'>
-                    <div>
-                        <h4>{title}</h4>
-                        <span>{subtitle}</span>
-                    </div>
-                    <div class='ebct-phase__score'>
-                        <strong>{percentage}</strong>
-                        <span>{score_caption}</span>
-                    </div>
-                </div>
-                <div class='ebct-phase__items'>
-                    {items}
-                </div>
-            </div>
-            """.format(
-                accent=escape(str(phase.get("accent", "#3f8144"))),
-                tooltip=escape(tooltip),
-                title=escape(str(phase.get("name", "Fase"))),
-                subtitle=escape(str(phase.get("subtitle", ""))),
-                percentage=escape(percentage_label),
-                score_caption=escape(score_caption),
-                items=items_html,
-            )
+        items_html = "\n".join(item_chunks)
+        phase_html = (
+            "<div class='ebct-phase' style='--phase-accent: {accent}'>\n"
+            "<div class='ebct-phase__header' title='{tooltip}'>\n"
+            "<div>\n"
+            "<h4>{title}</h4>\n"
+            "<span>{subtitle}</span>\n"
+            "</div>\n"
+            "<div class='ebct-phase__score'>\n"
+            "<strong>{percentage}</strong>\n"
+            "<span>{score_caption}</span>\n"
+            "</div>\n"
+            "</div>\n"
+            "<div class='ebct-phase__items'>\n"
+            "{items}\n"
+            "</div>\n"
+            "</div>"
+        ).format(
+            accent=escape(str(phase.get("accent", "#3f8144"))),
+            tooltip=escape(tooltip),
+            title=escape(str(phase.get("name", "Fase"))),
+            subtitle=escape(str(phase.get("subtitle", ""))),
+            percentage=escape(percentage_label),
+            score_caption=escape(score_caption),
+            items=items_html,
         )
+        html_chunks.append(phase_html)
     html_chunks.append("</div>")
     return "".join(html_chunks)
 
