@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Mapping, Union
-
-
-FloatIntStr = Union[float, int, str]
+from typing import Mapping
 
 from .ebct import EBCT_PHASES, get_characteristics_by_phase
 
@@ -58,10 +55,10 @@ def prepare_panel_data(responses_map: Mapping[int, bool]) -> List[Dict[str, obje
     return panel_rows
 
 
-def build_phase_summary(responses_map: Mapping[int, bool]) -> List[Dict[str, object]]:
+def build_phase_summary(responses_map: Mapping[int, bool]) -> list[dict[str, object]]:
     """Return lightweight phase summaries ready for table-based rendering."""
 
-    phase_summaries: List[Dict[str, object]] = []
+    phase_summaries: list[dict[str, object]] = []
     for data in prepare_panel_data(responses_map):
         phase = data["phase"]
         total = data["total"] or 0.0
