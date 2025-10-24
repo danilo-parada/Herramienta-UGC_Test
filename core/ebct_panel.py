@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, Union
 
 from .ebct import EBCT_PHASES, get_characteristics_by_phase
 
 
-def format_weight(value: float | int | str) -> str:
+def format_weight(value: Union[float, int, str]) -> str:
     """Format a weight value for display, avoiding unnecessary decimals."""
 
     try:
