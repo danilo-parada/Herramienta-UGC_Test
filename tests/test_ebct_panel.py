@@ -1,7 +1,14 @@
 from __future__ import annotations
 
-from core.ebct import EBCT_CHARACTERISTICS
-from core.ebct_panel import format_weight, prepare_panel_data, render_panel_html
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from core.ebct import EBCT_CHARACTERISTICS, EBCT_PHASES
+from core.ebct_panel import build_phase_summary, format_weight, prepare_panel_data
 
 
 def build_responses_map(true_ids: set[int]) -> dict[int, bool]:
@@ -39,20 +46,20 @@ def test_prepare_panel_data_counts_by_phase() -> None:
 
 
 
-def test_render_panel_html_contains_expected_sections() -> None:
+def test_build_phase_summary_returns_expected_labels() -> None:
     true_ids = {item["id"] for item in EBCT_CHARACTERISTICS}
     true_ids.difference_update({32, 34})
     responses_map = build_responses_map(true_ids)
 
-    html = render_panel_html(responses_map)
+    summaries = build_phase_summary(responses_map)
+    assert len(summaries) == len({phase["id"] for phase in EBCT_PHASES})
 
-    assert "<div class='ebct-roadmap'>" in html
-    assert "Fase Validación y PI" in html
-    assert "100% de cumplimiento · 9/9 características" in html
-    assert "Fase Preparación para Mercado" in html
-    assert "100% de cumplimiento · 12/12 características" in html
-    assert "Fase Internacionalización" in html
-    assert "60% de cumplimiento · 3/5 características" in html
-    assert "32. Definir estrategia de comercialización exportadora" in html
-    assert "ebct-chip--no" in html
-    assert "Sí cumple · Peso 1" in html
+    summary_map = {entry["id"]: entry for entry in summaries}
+
+    assert summary_map["validacion_pi"]["percentage_label"] == "100%"
+    assert summary_map["validacion_pi"]["achieved_label"] == "9"
+    assert summary_map["validacion_pi"]["total_label"] == "9"
+
+    assert summary_map["internacionalizacion"]["percentage_label"] == "60%"
+    assert summary_map["internacionalizacion"]["achieved_label"] == "3"
+    assert summary_map["internacionalizacion"]["total_label"] == "5"
