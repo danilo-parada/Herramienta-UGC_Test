@@ -1,6 +1,8 @@
 import pandas as pd
 import streamlit as st
-
+import io
+import plotly.graph_objects as go
+import plotly.express as px
 from html import escape
 from pathlib import Path
 
@@ -99,8 +101,34 @@ def render_phase_overview(panel_map: dict[int, bool]) -> None:
                 st.info("No hay características asociadas a esta fase.")
 
 
-OPTION_NO = "No cumple"
-OPTION_YES = "Sí cumple"
+OPTION_NO = "⚫ No cumple"
+OPTION_PARTIAL = "🟡 En desarrollo"
+OPTION_YES = "🟢 Sí cumple"
+
+# Mapeo de opciones a valores numéricos para scoring y ayuda
+OPTION_INFO = {
+    OPTION_NO: {
+        "score": 0.0,
+        "color": "#ff4d4d",  # Rojo
+        "help": "La característica no está implementada o no cumple los criterios mínimos.",
+        "icon": "🔴",
+    },
+    OPTION_PARTIAL: {
+        "score": 0.5,
+        "color": "#ffd700",  # Amarillo
+        "help": "La característica está en proceso de implementación o cumple parcialmente.",
+        "icon": "🟡",
+    },
+    OPTION_YES: {
+        "score": 1.0,
+        "color": "#1f6b36",  # Verde
+        "help": "La característica cumple completamente con los criterios establecidos.",
+        "icon": "🟢",
+    }
+}
+
+# Shortcuts para scoring
+OPTION_SCORES = {opt: info["score"] for opt, info in OPTION_INFO.items()}
 
 SUMMARY_SECTIONS = [
     {
@@ -693,39 +721,373 @@ with st.container():
 
 with st.container():
     st.markdown("<div class='section-shell'>", unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+        .ebct-legend {
+            background: white;
+            border-radius: 12px;
+            padding: 1.2rem 1.5rem;
+            margin: 1rem 0;
+            border: 1px solid rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        
+        .ebct-legend-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 0.8rem;
+        }
+        
+        .ebct-legend-items {
+            display: flex;
+            gap: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .ebct-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .ebct-legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .ebct-legend-text {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        
+        .ebct-characteristic {
+            background: white;
+            border-radius: 10px;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        
+        .ebct-characteristic:hover {
+            background: #f8f9fa;
+        }
+        
+        .ebct-characteristic-title {
+            font-size: 0.95rem;
+            color: #2c3e50;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+        
+        .ebct-radio-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.subheader("Evaluación EBCT por características")
+    
+    # Leyenda al inicio de la sección
+    st.markdown("""
+        <div class="ebct-legend">
+            <div class="ebct-legend-title">Estados de evaluación:</div>
+            <div class="ebct-legend-items">
+                <div class="ebct-legend-item">
+                    <span class="ebct-legend-dot" style="background: #ff4d4d;"></span>
+                    <span class="ebct-legend-text">No cumple - La característica no está implementada o no cumple los criterios mínimos</span>
+                </div>
+                <div class="ebct-legend-item">
+                    <span class="ebct-legend-dot" style="background: #ffd700;"></span>
+                    <span class="ebct-legend-text">En desarrollo - La característica está en proceso de implementación o cumple parcialmente</span>
+                </div>
+                <div class="ebct-legend-item">
+                    <span class="ebct-legend-dot" style="background: #1f6b36;"></span>
+                    <span class="ebct-legend-text">Sí cumple - La característica cumple completamente con los criterios establecidos</span>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.caption(
-        "Las 34 características comienzan marcadas como 'No cumple'. Actualiza cada respuesta y guarda la evaluación para generar el panel por fase."
+        "Las 34 características comienzan marcadas como 'No cumple'. Actualiza cada respuesta según corresponda y guarda la evaluación para generar el panel por fase."
     )
+
     grouped_characteristics = get_characteristics_by_phase()
+    
+    # Definir colores y porcentajes de dimensiones
+    DIMENSION_COLORS = {
+        1: {"color": "#673AB7", "name": "Investigación y Validación Técnica"},  # Purpura
+        2: {"color": "#4CAF50", "name": "Estrategia de Propiedad Intelectual"},  # Verde
+        3: {"color": "#2196F3", "name": "Estrategia de Desarrollo de Negocio", "pct": 0.30},  # Azul
+        4: {"color": "#2196F3", "name": "Modelo de Negocio", "pct": 0.30},  # Azul
+        5: {"color": "#2196F3", "name": "Estrategia Comercial", "pct": 0.40},  # Azul
+        6: {"color": "#FFC107", "name": "Estrategia y Gestión para Exportación"}  # Amarillo
+    }
+
+    # Mapeo de características a dimensiones
+    CARACTERISTICA_DIMENSIONES = {
+        1: [3,4,5], 2: [1], 3: [1], 4: [1], 5: [1], 6: [1], 7: [6,3,4,5], 8: [6,3,4,5],
+        9: [3,4,5], 10: [1], 11: [1], 12: [6,2], 13: [2], 14: [2], 15: [6], 16: [6,3,4,5],
+        17: [6], 18: [3,4,5], 19: [6,3,4,5], 20: [6], 21: [6,3,4,5], 22: [6], 23: [3,4,5],
+        24: [3,4,5], 25: [3,4,5], 26: [3,4,5], 27: [3,4,5], 28: [6,3,4,5], 29: [6,3,4,5],
+        30: [6], 31: [6], 32: [6], 33: [6], 34: [6]
+    }
+
+    st.markdown("""
+        <style>
+        .ebct-map-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            padding: 1rem;
+        }
+        
+        .phase-section {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 1.5rem;
+            border-radius: 15px;
+            position: relative;
+        }
+        
+        .phase-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .phase-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+        
+        .characteristic-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            position: relative;
+        }
+        
+        .dimension-indicators {
+            display: flex;
+            gap: 0.3rem;
+            align-items: center;
+        }
+        
+        .dimension-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .characteristic-title {
+            font-size: 0.9rem;
+            color: #333;
+            line-height: 1.3;
+        }
+        
+        .characteristic-options {
+            padding: 0.5rem 0;
+        }
+        
+        .dimension-tooltip {
+            display: none;
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            background: white;
+            padding: 0.5rem;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            font-size: 0.8rem;
+            white-space: nowrap;
+            z-index: 1000;
+            min-width: 200px;
+        }
+        
+        .dimension-dot-container:hover .dimension-tooltip {
+            display: block;
+        }
+
+        /* Colores específicos para cada fase */
+        .phase-incipiente {
+            background: rgba(103, 58, 183, 0.1);
+            border: 1px solid rgba(103, 58, 183, 0.3);
+        }
+        .phase-incipiente .phase-title {
+            background: #673AB7;
+        }
+        
+        .phase-validacion {
+            background: rgba(76, 175, 80, 0.1);
+            border: 1px solid rgba(76, 175, 80, 0.3);
+        }
+        .phase-validacion .phase-title {
+            background: #4CAF50;
+        }
+        
+        .phase-preparacion {
+            background: rgba(33, 150, 243, 0.1);
+            border: 1px solid rgba(33, 150, 243, 0.3);
+        }
+        .phase-preparacion .phase-title {
+            background: #2196F3;
+        }
+        
+        .phase-internacionalizacion {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+        }
+        .phase-internacionalizacion .phase-title {
+            background: #FFC107;
+            color: #333;
+        }
+
+        /* Estilo para los radio buttons */
+        .characteristic-radio {
+            display: flex;
+            gap: 1rem;
+            padding: 0.5rem;
+            background: rgba(0,0,0,0.03);
+            border-radius: 8px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     with st.form("fase2_ebct_form"):
-        for phase in EBCT_PHASES:
-            expanded = phase["id"] == EBCT_PHASES[0]["id"]
-            with st.expander(f"{phase['name']} · {phase['subtitle']}", expanded=expanded):
+        # Leyenda de dimensiones al inicio
+        with st.expander("ℹ️ Leyenda de Dimensiones", expanded=False):
+            st.markdown("### Dimensiones y sus indicadores:")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.markdown("🟣 Investigación y Validación Técnica")
+            with col2:
+                st.markdown("🟢 Estrategia de Propiedad Intelectual")
+            with col3:
+                st.markdown("🔵 Preparación para Mercado")
+            with col4:
+                st.markdown("🟡 Estrategia y Gestión para Exportación")
+        
+        st.markdown("#### Preparación para Mercado:")
+        st.markdown("- Estrategia de Desarrollo de Negocio (30%)")
+        st.markdown("- Modelo de Negocio (30%)")
+        st.markdown("- Estrategia Comercial (40%)")
+        
+        st.markdown("---")
+        
+        # Fases del EBCT
+        phase_colors = {
+            "Fase Incipiente": "🟣",
+            "Fase Validación y PI": "🟢",
+            "Fase Preparación para Mercado": "🔵",
+            "Fase Internacionalización": "🟡"
+        }
+
+        for idx, phase in enumerate(EBCT_PHASES):
+            # Determinar si esta fase debería estar expandida inicialmente
+            # Por defecto, solo la primera fase estará expandida
+            is_expanded = idx == 0
+            
+            # Crear el expander para la fase
+            with st.expander(
+                f"{phase_colors[phase['name']]} {phase['name']} - {phase.get('subtitle', '')}",
+                expanded=is_expanded
+            ):
+                # Obtener características de la fase
+                characteristics = grouped_characteristics.get(phase["id"], [])
+                if not characteristics:
+                    st.info("No hay características definidas para esta fase.")
+                    continue
+                
+                # Mostrar todas las características de la fase
+                for item in characteristics:
+                    with st.container():
+                        # Columnas para dimensiones y características
+                        col1, col2 = st.columns([0.2, 0.8])
+                        
+                        with col1:
+                            # Mostrar dimensiones como emojis
+                            dims = CARACTERISTICA_DIMENSIONES.get(item['id'], [])
+                            for dim_id in dims:
+                                if dim_id in [3,4,5]:  # Dimensiones azules
+                                    st.markdown(f"🔵 {DIMENSION_COLORS[dim_id]['pct']*100:.0f}%")
+                                elif dim_id == 1:
+                                    st.markdown("🟣")
+                                elif dim_id == 2:
+                                    st.markdown("🟢")
+                                elif dim_id == 6:
+                                    st.markdown("🟡")
+                        
+                        with col2:
+                            # Nombre y evaluación
+                            st.markdown(f"**{item['name']}**")
+                            key = f"ebct_resp_{item['id']}"
+                            option = st.radio(
+                                item['name'],
+                                (OPTION_NO, OPTION_PARTIAL, OPTION_YES),
+                                key=key,
+                                horizontal=True,
+                                label_visibility="collapsed"
+                            )
+                        
+                        st.markdown("---")
+                # Características de la fase
                 for item in grouped_characteristics.get(phase["id"], []):
-                    key = f"ebct_resp_{item['id']}"
-                    st.radio(
-                        f"{item['id']}. {item['name']}",
-                        (OPTION_NO, OPTION_YES),
-                        key=key,
-                        horizontal=True,
-                    )
+                    # Obtener dimensiones de la característica
+                    dims = CARACTERISTICA_DIMENSIONES.get(item['id'], [])
+                    
+                    # Crear indicadores de dimensión
+                    dimension_dots = ""
+                    for dim_id in dims:
+                        dim_info = DIMENSION_COLORS[dim_id]
+                        if dim_id in [3,4,5]:  # Dimensiones azules
+                            tooltip_text = f"{dim_info['name']} ({dim_info['pct']*100:.0f}%)"
+                        else:
+                            tooltip_text = dim_info['name']
+                    
+                    dimension_dots += f"""
+                        <div class="dimension-dot-container">
+                            <span class="dimension-dot" style="background-color: {dim_info['color']}"></span>
+                            <span class="dimension-tooltip">{tooltip_text}</span>
+                        </div>
+                    """
+                # Contenedor para la característica ya implementado arriba: omitido (redundante)
+                # Agregar separador visual al final de la fase
+            st.markdown("---")  # Separador entre fases
+
+        # Botones de submit y reset - dentro del formulario, fuera del bucle de fases
         col_submit, col_reset = st.columns([1, 1])
         submit_clicked = col_submit.form_submit_button("Guardar evaluación EBCT")
         reset_clicked = col_reset.form_submit_button("Restablecer a 'No cumple'")
-
+        
     if reset_clicked:
         for item in EBCT_CHARACTERISTICS:
             st.session_state[f"ebct_resp_{item['id']}"] = OPTION_NO
         st.info("Se restablecieron las respuestas a 'No cumple'.")
 
     if submit_clicked:
-        responses_map: dict[int, bool] = {}
+        responses_map: dict[int, float] = {}
         evaluation_rows = []
         for item in EBCT_CHARACTERISTICS:
             key = f"ebct_resp_{item['id']}"
-            value = st.session_state.get(key, OPTION_NO) == OPTION_YES
-            responses_map[item["id"]] = value
+            option = st.session_state.get(key, OPTION_NO)
+            score = OPTION_SCORES[option]
+            responses_map[item["id"]] = score
             evaluation_rows.append(
                 {
                     "id": item["id"],
@@ -749,6 +1111,380 @@ with st.container():
             st.error(f"Error al guardar la evaluación EBCT: {error}")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ==== Integración Semáforo (versión integrada, sin dependencia externa) ====
+    def compute_semaforo(responses_map: dict[int, float]) -> pd.DataFrame:
+        """Genera una tabla tipo semáforo a partir del mapa de respuestas.
+
+        Lógica integrada:
+        - Sí cumple (1.0) -> Verde
+        - En proceso (0.5) -> Amarillo
+        - No cumple (0.0) -> Rojo
+        """
+        rows = []
+        for item in EBCT_CHARACTERISTICS:
+            cid = item["id"]
+            name = item["name"]
+            phase = item.get("phase_name") or item.get("phase_id")
+            weight = item.get("weight", 1)
+            if cid in responses_map:
+                score = responses_map[cid]
+                if score >= 0.9:
+                    estado = "🟢 Verde"
+                elif score >= 0.4:
+                    estado = "🟡 Amarillo"
+                else:
+                    estado = "🔴 Rojo"
+            else:
+                estado = "🟡 Amarillo"
+                score = 0.5
+            # Obtener dimensiones de la característica
+            dims = CARACTERISTICA_DIMENSIONES.get(cid, [])
+            dimension_labels = []
+            for dim_id in dims:
+                if dim_id == 1:
+                    dimension_labels.append("🟣 Investigación y Validación Técnica")
+                elif dim_id == 2:
+                    dimension_labels.append("🟢 Estrategia de Propiedad Intelectual")
+                elif dim_id in [3, 4, 5]:
+                    dimension_labels.append(f"🔵 {DIMENSION_COLORS[dim_id]['name']} ({DIMENSION_COLORS[dim_id]['pct']*100:.0f}%)")
+                elif dim_id == 6:
+                    dimension_labels.append("🟡 Estrategia y Gestión para Exportación")
+            
+            rows.append({
+                "id": cid,
+                "Característica": name,
+                "Fase": phase,
+                "Dimensiones": " | ".join(dimension_labels),
+                "Peso": weight,
+                "Cumple": "Sí" if responses_map.get(cid) else "No",
+                "EstadoSemaforo": estado,
+                "Score": score,
+            })
+        return pd.DataFrame(rows)
+
+    # UI para semáforo: import, generar y exportar
+    with st.container():
+        st.markdown("<div class='section-shell'>", unsafe_allow_html=True)
+        st.subheader("Visor Semáforo integrado")
+        st.caption(
+            "Genera una vista rápida tipo semáforo a partir de las respuestas registradas en la evaluación EBCT."
+        )
+
+        col_imp, col_gen, col_exp = st.columns([1, 1, 1])
+
+        # Importador simple: CSV con columnas 'id' y 'cumple' (1/0 o True/False)
+        uploaded = col_imp.file_uploader(
+            "Importar respuestas (CSV) opcional",
+            type=("csv",),
+            help="CSV con columnas: id, cumple (1/0 o True/False). Las respuestas importadas sobrescriben las actuales en sesión.",
+            key="fase2_semaforo_import",
+        )
+        if uploaded is not None:
+            try:
+                imp_df = pd.read_csv(uploaded)
+                if "id" in imp_df.columns and "estado" in imp_df.columns:
+                    for _, r in imp_df.iterrows():
+                        try:
+                            cid = int(r["id"])
+                        except Exception:
+                            continue
+                        val = str(r["estado"]).strip().lower()
+                        if val in ("1", "true", "sí", "si", "cumple"):
+                            st.session_state[f"ebct_resp_{cid}"] = OPTION_YES
+                        elif val in ("0.5", "parcial", "en proceso", "proceso"):
+                            st.session_state[f"ebct_resp_{cid}"] = OPTION_PARTIAL
+                        else:
+                            st.session_state[f"ebct_resp_{cid}"] = OPTION_NO
+                    st.success("Respuestas importadas y aplicadas en la sesión.")
+                else:
+                    st.error("Archivo inválido: se requieren columnas 'id' y 'cumple'.")
+            except Exception as e:
+                st.error(f"Error leyendo el CSV: {e}")
+
+        generate = col_gen.button("Generar semáforo (vista)", key="fase2_gen_semaforo")
+        if generate:
+            # Construir mapa de respuestas desde st.session_state
+            current_map = {}
+            for item in EBCT_CHARACTERISTICS:
+                key = f"ebct_resp_{item['id']}"
+                val = st.session_state.get(key, OPTION_NO) == OPTION_YES
+                current_map[item["id"]] = val
+
+            sem_df = compute_semaforo(current_map)
+
+            # KPIs básicos
+            total_items = len(sem_df)
+            achieved = (sem_df["Score"] * sem_df["Peso"]).sum()
+            total_weight = sem_df["Peso"].sum() if total_items else 0.0
+            pct = (achieved / total_weight * 100) if total_weight else 0.0
+
+            st.metric("Características evaluadas", total_items)
+            st.metric("Peso logrado (sum)", format_weight(achieved))
+            st.metric("Cumplimiento (peso)", f"{pct:.1f}%")
+
+            # Definir orden de fases (se usa para todas las visualizaciones)
+            phase_order = {
+                "Fase Incipiente": 1,
+                "Fase Validación y PI": 2,
+                "Fase Preparación para Mercado": 3,
+                "Fase Internacionalización": 4,
+            }
+            ordered_phases = sorted(sem_df["Fase"].unique(), key=lambda x: phase_order.get(x, 999))
+
+            # Mostrar tabla semáforo con dimensiones (ordenada por la secuencia de fases definida)
+            display_df = sem_df.drop(columns=["id"]).copy()
+            display_df["Fase"] = pd.Categorical(display_df["Fase"], categories=ordered_phases, ordered=True)
+            # Reordenar las columnas para mostrar las dimensiones después de la característica
+            display_df = display_df[["Fase", "Característica", "Dimensiones", "EstadoSemaforo", "Score", "Peso", "Cumple"]]
+            display_df = display_df.sort_values(["Fase", "Score"], ascending=[True, False])
+            st.dataframe(display_df, use_container_width=True)
+
+            # Panel de Estado EBCT por Fases
+            st.write("### Panel de Estado EBCT")
+            
+            # CSS para el panel de fases
+            st.markdown("""
+                <style>
+                .fase-container {
+                    margin: 2rem 0;
+                    border-radius: 15px;
+                    padding: 1.5rem;
+                    background: rgba(255,255,255,0.05);
+                }
+                
+                .fase-titulo {
+                    font-size: 1.2rem;
+                    font-weight: bold;
+                    margin-bottom: 1rem;
+                    padding: 0.5rem 1rem;
+                    border-radius: 8px;
+                    display: inline-block;
+                }
+                
+                .fase-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 1.5rem;
+                    align-items: start;
+                }
+                
+                .caracteristica-item {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 1rem;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                    transition: all 0.3s ease;
+                    cursor: pointer;
+                    position: relative;
+                    border-left: 4px solid;
+                }
+                
+                .caracteristica-item:hover {
+                    transform: translateY(-4px);
+                    box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+                }
+                
+                .caracteristica-nombre {
+                    font-size: 0.9rem;
+                    margin-bottom: 0.5rem;
+                    color: #2c3e50;
+                }
+                
+                .caracteristica-estado {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+                
+                .estado-emoji {
+                    font-size: 1.2rem;
+                }
+                
+                .estado-score {
+                    font-size: 0.8rem;
+                    color: #666;
+                }
+                
+                .caracteristica-tooltip {
+                    display: none;
+                    position: absolute;
+                    bottom: 110%;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: white;
+                    padding: 0.8rem;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    width: max-content;
+                    max-width: 300px;
+                    z-index: 1000;
+                    text-align: left;
+                }
+                
+                .caracteristica-item:hover .caracteristica-tooltip {
+                    display: block;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+            
+            # Colores por fase
+            fase_colors = {
+                "Fase Incipiente": "#673AB7",  # Morado
+                "Fase Validación y PI": "#4CAF50",  # Verde
+                "Fase Preparación para Mercado": "#2196F3",  # Azul
+                "Fase Internacionalización": "#FFC107"  # Amarillo
+            }
+            
+            # Generar paneles por fase en el orden definido (ordered_phases)
+            for fase in ordered_phases:
+                grupo = sem_df[sem_df["Fase"] == fase]
+                # Sólo renderizar si hay elementos en la fase
+                if grupo.empty:
+                    continue
+                st.markdown(f"""
+                    <div class="fase-container">
+                        <div class="fase-titulo" style="background: {fase_colors.get(fase, '#666')}20; color: {fase_colors.get(fase, '#666')}">
+                            {fase}
+                        </div>
+                        <div class="fase-grid">
+                """, unsafe_allow_html=True)
+
+                for _, row in grupo.iterrows():
+                    estado_color = {
+                        "🔴 Rojo": "#ff4d4d",
+                        "🟡 Amarillo": "#ffd700",
+                        "🟢 Verde": "#1f6b36"
+                    }.get(row["EstadoSemaforo"], "#666")
+
+                    st.markdown(f"""
+                        <div class="caracteristica-item" style="border-left-color: {estado_color}">
+                            <div class="caracteristica-nombre">{row['Característica']}</div>
+                            <div class="caracteristica-dimensiones" style="margin: 0.5rem 0; font-size: 0.85rem; color: #666;">
+                                {row['Dimensiones']}
+                            </div>
+                            <div class="caracteristica-estado">
+                                <span class="estado-emoji">{row['EstadoSemaforo'].split()[0]}</span>
+                                <span class="estado-score">Score: {row['Score']:.1f}</span>
+                            </div>
+                            <div class="caracteristica-tooltip">
+                                <strong>ID:</strong> #{row['id']}<br>
+                                <strong>Característica:</strong> {row['Característica']}<br>
+                                <strong>Dimensiones:</strong><br>{row['Dimensiones'].replace(' | ', '<br>')}<br>
+                                <strong>Estado:</strong> {row['EstadoSemaforo']}<br>
+                                <strong>Score:</strong> {row['Score']:.1f}
+                            </div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                st.markdown("</div></div>", unsafe_allow_html=True)
+
+            # Visualizaciones: Radar y Heatmap
+            col_radar, col_heat = st.columns(2)
+
+            with col_radar:
+                st.write("### Radar por Fase")
+                # Preparar datos por fase para el radar (y ordenar según ordered_phases)
+                radar_df = sem_df.groupby("Fase").agg({
+                    "Score": lambda x: (x * sem_df.loc[x.index, "Peso"]).sum() / sem_df.loc[x.index, "Peso"].sum()
+                }).reset_index()
+                # Reordenar radar_df según ordered_phases
+                radar_df = radar_df.set_index("Fase").reindex(ordered_phases).reset_index()
+                
+                fig_radar = go.Figure()
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=radar_df["Score"] * 100,
+                    theta=radar_df["Fase"],
+                    fill="toself",
+                    name="Cumplimiento",
+                    fillcolor="rgba(31, 107, 54, 0.35)",
+                    line=dict(color="rgb(31, 107, 54)"),
+                ))
+                fig_radar.update_layout(
+                    polar=dict(
+                        radialaxis=dict(
+                            visible=True,
+                            range=[0, 100],
+                            ticksuffix="%",
+                            gridcolor="rgba(0,0,0,0.1)",
+                            showline=False,
+                        ),
+                        bgcolor="rgba(255,255,255,0.95)",
+                    ),
+                    showlegend=False,
+                    margin=dict(l=40, r=40, t=20, b=20),
+                    height=350,
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(fig_radar, use_container_width=True)
+
+            with col_heat:
+                st.write("### Heatmap de Cumplimiento")
+                # Preparar matriz para heatmap y reordenar filas según ordered_phases
+                heat_df = sem_df.pivot_table(
+                    values="Score",
+                    index="Fase",
+                    columns="Característica",
+                    aggfunc="first",
+                    fill_value=0
+                )
+                heat_df = heat_df.reindex(ordered_phases)
+                
+                # Preparar datos para el heatmap con información de dimensiones
+                hover_text = []
+                for idx, row in sem_df.iterrows():
+                    hover_text.append(
+                        f"Característica: {row['Característica']}<br>" +
+                        f"Fase: {row['Fase']}<br>" +
+                        f"Dimensiones: {row['Dimensiones']}<br>" +
+                        f"Estado: {row['EstadoSemaforo']}<br>" +
+                        f"Score: {row['Score']:.1f}"
+                    )
+
+                fig_heat = go.Figure(data=go.Heatmap(
+                    z=heat_df.values,
+                    x=heat_df.columns,
+                    y=heat_df.index,
+                    colorscale=[
+                        [0, "rgb(255, 77, 77)"],     # Rojo para 0
+                        [0.5, "rgb(255, 215, 0)"],   # Amarillo para 0.5
+                        [1, "rgb(31, 107, 54)"]      # Verde para 1
+                    ],
+                    hoverongaps=False,
+                    showscale=True,
+                    text=hover_text,
+                    hoverinfo='text',
+                    colorbar=dict(
+                        title="Score",
+                        tickmode="array",
+                        ticktext=["No cumple", "Parcial", "Cumple"],
+                        tickvals=[0, 0.5, 1],
+                        ticks="outside"
+                    )
+                ))
+                fig_heat.update_layout(
+                    margin=dict(l=40, r=40, t=20, b=60),
+                    height=350,
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    xaxis=dict(
+                        tickangle=45,
+                        showgrid=False,
+                    ),
+                    yaxis=dict(
+                        showgrid=False,
+                    )
+                )
+                st.plotly_chart(fig_heat, use_container_width=True)
+
+            # Exportar CSV
+            csv_buf = io.StringIO()
+            sem_df.to_csv(csv_buf, index=False)
+            csv_data = csv_buf.getvalue()
+            col_exp.download_button("Exportar semáforo CSV", csv_data, file_name=f"semaforo_proyecto_{project_id}.csv")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
 panel_timestamp = st.session_state.get("ebct_last_eval_timestamp")
 panel_map = st.session_state.get("ebct_panel_map", panel_map)

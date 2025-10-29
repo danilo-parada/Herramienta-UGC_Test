@@ -166,20 +166,20 @@ _CSS_TEMPLATE = """
 }
 
 .<scope>__question {
-  border: 1px solid rgba(var(--shadow-color), 0.14);
-  border-radius: 20px;
-  padding: 1rem 1.15rem 1.2rem;
-  background: #ffffff;
-  box-shadow: 0 18px 38px rgba(var(--shadow-color), 0.12);
-  margin-bottom: 0.8rem;
+    border: 1px solid rgba(var(--shadow-color), 0.14);
+    border-radius: 14px;
+    padding: 0.7rem 0.9rem 0.85rem;
+    background: #ffffff;
+    box-shadow: 0 10px 20px rgba(var(--shadow-color), 0.10);
+    margin-bottom: 0.3rem;
 }
 
 .<scope>__question-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.9rem;
-  margin-bottom: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 0.45rem;
 }
 
 .<scope>__question-badge {
@@ -358,19 +358,20 @@ def init_state(questions: Sequence[Question], *, cursor_key: str) -> int:
     """Ensure ``st.session_state`` contains defaults for the provided questions."""
 
     for question in questions:
-        if question.answer_key and question.answer_key not in st.session_state:
-            st.session_state[question.answer_key] = "FALSO"
-
+        # Aseguramos que la key booleana de la pregunta exista y sea booleana
         if question.value_key not in st.session_state:
-            default = False
-            if question.answer_key:
-                default = st.session_state.get(question.answer_key) == "VERDADERO"
-            st.session_state[question.value_key] = default
+            st.session_state[question.value_key] = False
         else:
-            current = bool(st.session_state[question.value_key])
-            if question.answer_key:
-                st.session_state[question.answer_key] = "VERDADERO" if current else "FALSO"
+            # normalizamos a booleano
+            st.session_state[question.value_key] = bool(st.session_state[question.value_key])
 
+        # Sincronizamos la representación textual si corresponde
+        if question.answer_key:
+            st.session_state[question.answer_key] = (
+                "VERDADERO" if st.session_state.get(question.value_key) else "FALSO"
+            )
+
+        # Nota: siempre garantizamos que exista la key de evidencia como string
         if question.note_key not in st.session_state:
             st.session_state[question.note_key] = ""
         else:
@@ -497,28 +498,41 @@ def render_question(
         unsafe_allow_html=True,
     )
 
-    value = bool(st.session_state.get(question.value_key))
-    st.toggle(
-        question.text,
-        key=question.value_key,
-        value=value,
+    answer_key = question.answer_key
+    value_key = question.value_key
+
+    # Inicializar valor desde session_state (ya normalizado por init_state)
+    initial_value = bool(st.session_state.get(value_key, False))
+
+    # Usamos checkbox (más estándar) para una interacción rápida y predecible
+    checkbox_value = st.checkbox(
+        label=question.text,
+        key=value_key,
+        value=initial_value,
         disabled=disabled,
         label_visibility="collapsed",
     )
-    # Sync the textual representation when available.
-    if question.answer_key:
-        st.session_state[question.answer_key] = (
-            "VERDADERO" if st.session_state.get(question.value_key) else "FALSO"
-        )
 
-    state_class = "is-true" if st.session_state.get(question.value_key) else "is-false"
+    # Sincronizar la representación textual (answer_key) cuando cambie
+    if checkbox_value != (st.session_state.get(answer_key) == "VERDADERO" if answer_key else checkbox_value):
+        # Actualizamos el estado booleano en session_state (checkbox ya lo hizo)
+        st.session_state[value_key] = bool(checkbox_value)
+        if answer_key:
+            st.session_state[answer_key] = "VERDADERO" if checkbox_value else "FALSO"
+
+    toggle_value = checkbox_value
+
+    # Estado visual
+    state_class = "is-true" if toggle_value else "is-false"
+    display_text = "VERDADERO" if toggle_value else "FALSO"
+    
     st.markdown(
         """<div class="%s__toggle"><span class="%s__toggle-state %s">%s</span></div>"""
         % (
             CSS_SCOPE_CLASS,
             CSS_SCOPE_CLASS,
             state_class,
-            "VERDADERO" if state_class == "is-true" else "FALSO",
+            display_text
         ),
         unsafe_allow_html=True,
     )

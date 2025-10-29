@@ -907,8 +907,8 @@ def _restore_level_form_values(dimension: str, level_id: int) -> None:
         for idx, _ in enumerate(preguntas, start=1):
             clave = str(idx)
             pregunta_key = f"resp_{dimension}_{level_id}_{idx}"
-            evidencia_key = f"evid_{dimension}_{level_id}_{idx}"
             toggle_key = f"toggle_{dimension}_{level_id}_{idx}"
+            evidencia_key = f"evid_{dimension}_{level_id}_{idx}"
             valor = state.get("respuestas_preguntas", {}).get(clave)
             st.session_state[pregunta_key] = valor if valor in {"VERDADERO", "FALSO"} else "FALSO"
             st.session_state[toggle_key] = st.session_state[pregunta_key] == "VERDADERO"
@@ -1147,41 +1147,35 @@ def _handle_level_submission(
         ).strip()
     elif evidencias_preguntas is not None:
         evidencias_normalizadas = {k: str(v) for k, v in evidencias_preguntas.items()}
+
+    # Primero validamos las respuestas y evidencias
+    if preguntas:
+        faltantes = _missing_required_evidences(level_data, normalizado, evidencias_normalizadas)
+        if faltantes:
+            mensaje = "Escribe los antecedentes de verificación para guardar como VERDADERO."
+            return False, mensaje, None
+        respuesta = _aggregate_question_status(normalizado) or "FALSO"
+    else:
+        if respuesta_manual not in {"VERDADERO", "FALSO"}:
+            mensaje = "Selecciona VERDADERO o FALSO para continuar."
+            return False, mensaje, None
+        respuesta = respuesta_manual
+        if respuesta == "VERDADERO" and not evidencia:
+            mensaje = "Escribe los antecedentes de verificación para guardar como VERDADERO."
+            return False, mensaje, None
+
+    # Solo guardamos el estado cuando pasamos todas las validaciones y el usuario presiona "Guardar"
     _set_level_state(
         dimension,
         level_id,
         respuestas_preguntas=normalizado,
         evidencia=evidencia,
         evidencias_preguntas=evidencias_normalizadas,
+        respuesta=respuesta,
+        estado_auto="Respondido (en cálculo)",
+        en_calculo=True
     )
-
-    if preguntas:
-        faltantes = _missing_required_evidences(level_data, normalizado, evidencias_normalizadas)
-        if faltantes:
-            mensaje = "Escribe los antecedentes de verificación para guardar como VERDADERO."
-            _set_level_state(dimension, level_id, estado_auto="Pendiente", en_calculo=False)
-            return False, mensaje, None
-        respuesta = _aggregate_question_status(normalizado) or "FALSO"
-    else:
-        if respuesta_manual not in {"VERDADERO", "FALSO"}:
-            mensaje = "Selecciona VERDADERO o FALSO para continuar."
-            _set_level_state(
-                dimension,
-                level_id,
-                respuesta=None,
-                estado_auto="Pendiente",
-                en_calculo=False,
-            )
-            return False, mensaje, None
-        respuesta = respuesta_manual
-        if respuesta == "VERDADERO" and not evidencia:
-            mensaje = "Escribe los antecedentes de verificación para guardar como VERDADERO."
-            _set_level_state(dimension, level_id, estado_auto="Pendiente", en_calculo=False)
-            return False, mensaje, None
-
-    _set_level_state(dimension, level_id, respuesta=respuesta)
-
-    _set_level_state(dimension, level_id, estado_auto="Respondido (en cálculo)", en_calculo=True)
+    
     return True, None, None
 
 
@@ -1280,15 +1274,10 @@ def _render_level_question_flow(
                 if not isinstance(evidencia_actual, str):
                     evidencia_actual = "" if evidencia_actual is None else str(evidencia_actual)
 
-                if valid and not is_saved:
-                    _persist_question_progress(
-                        dimension,
-                        level_id,
-                        question.idx,
-                        respuesta_actual,
-                        evidencia_actual,
-                    )
-
+                # Do not persist to the permanent level state while the user is
+                # still navigating questions. Persist only when the user explicitly
+                # clicks "Guardar y continuar...". We still track per-question
+                # completion in the question progress map.
                 if valid:
                     _mark_question_saved(
                         dimension,
@@ -1340,7 +1329,7 @@ def _render_dimension_tab(dimension: str) -> None:
     )
     st.progress(progreso)
 
-    for level in levels:
+    for lvl_index, level in enumerate(levels):
         level_id = level["nivel"]
         state = _level_state(dimension, level_id)
         status = state.get("estado", "Pendiente")
@@ -1377,7 +1366,12 @@ def _render_dimension_tab(dimension: str) -> None:
         )
 
         expander_label = f"Nivel {level_id} · {level['descripcion']}"
-        expanded = bool(st.session_state[_ERROR_KEY][dimension].get(level_id))
+        # Control expanders explicitly per-level to avoid racey JS-based close behaviour.
+        expander_open_key = f"expander_open_{dimension}_{level_id}"
+        # If there's an error for this level, force the expander open. Otherwise respect stored flag.
+        expanded = bool(st.session_state[_ERROR_KEY][dimension].get(level_id)) or bool(
+            st.session_state.get(expander_open_key, False)
+        )
         with st.expander(
             expander_label,
             expanded=expanded,
@@ -1509,9 +1503,28 @@ def _render_dimension_tab(dimension: str) -> None:
                     _sync_dimension_score(dimension)
                     _set_revision_flag(dimension, level_id, False)
                     st.session_state[_EDIT_MODE_KEY][dimension][level_id] = False
+                    # Close current expander and open the next one (if any) deterministically
                     st.session_state[_CLOSE_EXPANDER_KEY] = (dimension, level_id)
+                    # close current
+                    st.session_state[f"expander_open_{dimension}_{level_id}"] = False
+                    # open next level if exists
+                    if lvl_index + 1 < len(levels):
+                        next_level_id = levels[lvl_index + 1]["nivel"]
+                        st.session_state[f"expander_open_{dimension}_{next_level_id}"] = True
+
                     irl_level_flow.save_level("Nivel guardado")
                     st.toast("Guardado")
+                    # Recalcular puntaje global y cachearlo para evitar cálculos en cada rerun
+                    try:
+                        df_all = _collect_dimension_responses()
+                        if not df_all.empty:
+                            st.session_state["irl_last_puntaje"] = trl.calcular_trl(
+                                df_all[["dimension", "nivel", "evidencia"]]
+                            )
+                        else:
+                            st.session_state["irl_last_puntaje"] = None
+                    except Exception:
+                        st.session_state["irl_last_puntaje"] = None
                     _rerun_app()
         if st.session_state.get(_CLOSE_EXPANDER_KEY) == (dimension, level_id):
             st.session_state[_CLOSE_EXPANDER_KEY] = None
@@ -1918,7 +1931,7 @@ st.markdown(
 }
 
 div[data-testid="stExpander"] {
-    margin-bottom: 0.85rem;
+    margin-bottom: 0.2rem;
 }
 
 div[data-testid="stExpander"] > details {
@@ -2064,10 +2077,10 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card > div[data-testid="stExpander"] > details > summary {
-    font-size: 1.05rem;
+    font-size: 1.02rem;
     font-weight: 700;
     color: var(--forest-800);
-    padding: 1.2rem 1.4rem;
+    padding: 0.8rem 1rem;
     list-style: none;
     cursor: pointer;
 }
@@ -2077,7 +2090,7 @@ div[data-testid="stExpander"] > details > div[data-testid="stExpanderContent"] {
 }
 
 .level-card > div[data-testid="stExpander"] div[data-testid="stExpanderContent"] {
-    padding: 0 1.4rem 1.4rem;
+    padding: 0 1rem 0.9rem;
     background: rgba(255, 255, 255, 0.98);
     border-top: 1px solid rgba(var(--shadow-color), 0.12);
 }
@@ -2834,13 +2847,26 @@ with st.container():
                         )
         else:
             st.warning("No se encontraron definiciones de niveles para las dimensiones IRL.")
-    puntaje = trl.calcular_trl(df_respuestas[["dimension", "nivel", "evidencia"]]) if not df_respuestas.empty else None
+    # Use cached puntaje when available; avoid recalculating on each rerun to improve responsiveness.
+    puntaje = st.session_state.get("irl_last_puntaje")
+    if puntaje is None and df_respuestas.empty:
+        puntaje = None
     st.metric("Nivel IRL alcanzado", f"{puntaje:.1f}" if puntaje is not None else "-")
 
     col_guardar, col_ayuda = st.columns([1, 1])
     with col_guardar:
         finalize_clicked = st.button("Finalizar evaluación", type="primary")
         if finalize_clicked:
+            # If we don't have a cached puntaje, compute it now (user-triggered expensive op)
+            if puntaje is None and not df_respuestas.empty:
+                try:
+                    computed = trl.calcular_trl(df_respuestas[["dimension", "nivel", "evidencia"]])
+                    st.session_state["irl_last_puntaje"] = computed
+                    puntaje = computed
+                except Exception:
+                    st.session_state["irl_last_puntaje"] = None
+                    puntaje = None
+
             if puntaje is None:
                 st.info(
                     "La evaluación se guardará sin campos respondidos ni niveles acreditados para que puedas avanzar a la fase 2."

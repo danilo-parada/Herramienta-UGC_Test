@@ -1,5 +1,6 @@
 import sqlite3
 import pandas as pd
+import streamlit as st
 from datetime import datetime
 import pytz
 from .config import DB_PATH, TABLE_TRL, TZ_NAME
@@ -49,8 +50,15 @@ def save_trl_result(id_innovacion: int, df_dim: pd.DataFrame, trl_global: float 
     df_save = pd.DataFrame(rows)
     with get_conn() as conn:
         df_save.to_sql(TABLE_TRL, conn, if_exists="append", index=False)
+    # Clear cache for history reads so subsequent get_trl_history returns fresh data
+    try:
+        st.cache_data.clear()
+    except Exception:
+        pass
 
+@st.cache_data(ttl=300)
 def get_trl_history(id_innovacion: int) -> pd.DataFrame:
+    """Return TRL history for a project; cached for short period to avoid repeated DB hits."""
     with get_conn() as conn:
         return pd.read_sql_query(
             f"SELECT * FROM {TABLE_TRL} WHERE id_innovacion=? ORDER BY fecha_eval DESC, id DESC",
